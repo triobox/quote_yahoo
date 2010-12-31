@@ -493,8 +493,6 @@ class Quoter(object):
             for i,d in enumerate(km_obj['data']['0']):
                 result.append(sep.join([ts[i],km_fmt.format(*d)]))
             return result    
-                              
-
 
     def output_quote(self,data,outputfp=None,printout=True):
         """print quote to stdout

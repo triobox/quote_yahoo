@@ -1,1 +1,6 @@
-Fetch realtime and history stock data from yahoo. 
+quote_yahoo
++ Fetch realtime and history stock data from yahoo. 
+
+fxj_parser
++ parse daily and 5-minute data file of fxj, and split&divident  and finance
+data files.  

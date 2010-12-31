@@ -1,0 +1,508 @@
+分析家的数据结构
+
+min.dat与day.dat的结构是一样的，不同之处：day.dat中的日期字段在min.dat中是时间。是不是可以这样考虑，.DAT的日、五分钟数据的机构也是一样的，不同之处也如同.DAT，是日期与时间的区别。从另外一个角度看，无论是日数据还是分钟数据（一分钟、五分钟、其它分钟）它们的源头都是分笔成交数据。所以附：
+分析家分笔数据文件结构
+.prp
+
+起止地址  数据内容     数据含义  数据类型
+--------HEAD----------------------------
+00 - 03  F4 9B 13 FC 文件标志 Integer
+04 - 07  10 02 00 00 保留 Integer
+08 - 0B  00 91 40 3D 保留 Integer
+0C - 0F  D2 02 00 00 证券总数 Integer
+10 - 13  51 05 00 00 需添加之起始块号 Integer
+14 - 17  50 05 00 00 当前最后空块号 Integer
+-------TABLE records----------------------------
+18 - 21  33 39 39 30 证券代码 Char[10]
+22 - 25  30 31 00 FF 分笔交易记录数 Integer
+26 - 57  FF FF BA 03...FF FF 记录块号 Word[25](ushort数组)
+.
+.
+.
+records list
+.
+.
+------BODY DATA-----
+   地   址    数据内容    数据含义       数据类型      
+41000 - 41003 98 00 66 3D 日期           Integer     
+41004 - 41007 00 00 18 41 最新价         float
+41008 - 4100B 00 80 B4 43 累计成交量     float
+4100C - 4100F 80 46 A7 48 累计成交金额   float
+41010 - 41011 EA AA       委买量1        ushort  
+41012 - 41013 2A 3F       委买量2        ushort
+41014 - 41015 24 57       委买量3        ushort
+41015 - 41017 23 01       委卖量1        ushort
+41018 - 41019 8E 5B       委卖量2        ushort
+4101A - 3101B 80 40       委卖量3        ushort
+4101C         16       委买价1的小数部分 Byte
+4101D         9A       委买价2的小数部分 Byte
+4101E         80       委买价3的小数部分 Byte
+4101F         40       委卖价1的小数部分 Byte
+41020         30       委卖价2的小数部分 Byte
+41021         57       委卖价3的小数部分 Byte
+41022 - 41023 00 80    买入,卖出标识     Byte
+1.)从18h开始至40017h每64byte为一条股票数据分配记录，含义如上表18h - 57h所示；
+2.)从41000h开始每4068byte为一股票数据存储块，每个股票数据存储块共存储113条记录，每一
+条记录的长度为36 byte:
+    具体含义如上表41000h - 41023h所示；
+3.) 日期字段意义均为：实际日期 = CDate('1970-01-01')+(日期字段 div 86400)；即“日期字
+段”除以86400所得数为
+    实际日期距1970年01月01日的天数。
+4.)委买,委卖价由最新价加委买,委卖价小数部分得到,如:
+   委买价1的小数部分=16h(<80h), 则委买价1=最新价+32/100；(16h=32d)
+   委买价2的小数部分=9Ah(>80h), 则委买价2=最新价-(256-154)/100；(9Ah=154d)
+5.)单笔成交量用本笔累计数减上笔累计数得到,
+   若买入,卖出标识为80h,则单笔成交量是买入量;
+   若买入,卖出标识为C0h,则单笔成交量是卖出量。
+
+上面的这些希望能有用，祝顺利！
+
+-------------------------------------------
+分析家的安装数据
+
+
+zt"数据下载区”原文：
+前20个字节为头信息:
+
+1~4        为安装数据的标识(33 FC 19 8C)
+5~8        为 ?? ?? ?? ?? 未知
+9~12        为本文件的股票数
+13~16        为00 00 00 00
+17~20        为FF FF FF FF
+
+
+对于单日的安装数据
+
+标识(33 FC 19 8C) ?? ?? ?? ?? 本文件的股票数 00 00 00 00
+FF FF FF FF SHXX(SZXX) XXXX(XX 00 00) 00(00 00 00)|(重复上一只股票的最低价的后三位，不指逻辑上的，如果是第一只则用40 00 00)
+?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??
+日期 开盘价 最高价 最低价
+收盘价 成交量(手) 成交额(元) ?? ?? ?? ??
+FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+对于多日的安装数据
+
+标识(33 FC 19 8C) ?? ?? ?? ?? 本文件的股票数 00 00 00 00
+FF FF FF FF SHXX(SZXX) XXXX(XX 00 00) 00(00 00 00)|(重复上一只股票的最低价的后三位，不指逻辑上的，如果是第一只则用40 00 00)
+?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ?? ??
+日期 开盘价 最高价 最低价
+收盘价 成交量(手) 成交额(元) ?? ?? ?? ??
+日期 开盘价 最高价 最低价
+收盘价 成交量(手) 成交额(元) ?? ?? ?? ??
+日期 开盘价 最高价 最低价
+收盘价 成交量(手) 成交额(元) ?? ?? ?? ??
+日期 开盘价 最高价 最低价
+收盘价 成交量(手) 成交额(元) ?? ?? ?? ??
+日期 开盘价 最高价 最低价
+收盘价 成交量(手) 成交额(元) ?? ?? ?? ??
+FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+
+每个日K线为36字节
+
+time_t        Date;        //日期,UCT方式
+float        OPen;        //开盘(元)
+float        High;        //最高价(元)
+float        Low;        //最低价(元)
+float        Close;        //收盘(元)
+float        Money;        //成交量(手)
+float        Volume;        //成交额(元)
+float        Nouse1;        //未用
+
+--------------------------------
+分析家数据存储格式
+     
+    上海日线存储文件为:\superstk\data\sh\day.dat
+    深圳日线存储文件为:\superstk\data\sz\day.dat
+     
+    以上海日线存储文件day.dat为例：
+     
+    00000h: F4 9B 13 FC 10 02 00 00-00 00 00 00 D1 04 00 00
+    00010h: 81 0C 00 00 48 0C 00 00-31 41 30 30 30 31 00 FF
+    00020h: FF FF B0 09 FF FF 16 00-17 00 18 00 19 00 1A 00
+    00030h: 1B 00 1C 00 1D 00 1E 00-07 0A FF FF FF FF FF FF
+    00040h: FF FF FF FF FF FF FF FF-FF FF FF FF FF FF FF FF
+    00050h: FF FF FF FF FF FF FF FF
+     ......
+     ......
+    41000h: 80 47 B2 2B B9 1E 25 41-CD CC 4C 41 EC 51 18 41
+    41010h: 9A 99 41 41 80 06 B2 47-40 1C BC 4C 00 00 00 00
+    41020h: 00 3C B6 2B 34 33 3F 41-AF 47 49 41 01 00 30 41
+    41030h: 34 33 3B 41 00 07 12 47-A4 3C 26 4C 00 00 00 00
+     
+    该文件格式与磁盘文件物理存储方式类似：
+     
+    起止地址 数据内容 数据含义 数据类型
+    00 - 03 F4 9B 13 FC 日线文件标志 Integer
+    04 - 07 10 02 00 00 保留 Integer
+    08 - 0B 00 00 00 00 保留 Integer
+    0C - 0F D1 04 00 00 证券总数 Integer
+    10 - 13 81 0C 00 00 需添加之起始块号 Integer
+    14 - 17 48 0C 00 00 当前最后空块号 Integer
+    18 - 21 31 41 30 30 30...FF 证券代码 Char[10]
+    22 - 23 B0 09 日线记录数 Integer
+    24 - 25 FF FF 保留 Integer
+    26 - 57 16 00 17 00...FF FF 记录块号 Word[25]
+    ......
+    41000 - 41003 80 47 B2 2B 日期 Integer
+    41004 - 41007 B9 1E 25 41 开盘价 Single
+    41008 - 4100B CD CC 4C 41 最高价 Single
+    4100C - 4100F EC 51 18 41 最低价 Single
+    41010 - 41013 9A 99 41 41 收盘价 Single
+    41014 - 41017 80 06 B2 47 成交量 Single
+    41018 - 4101B 40 1C BC 4C 成交金额 Single
+    4101C - 4101D 00 00 上涨家数 Word
+    4101E - 4101F 00 00 下跌家数 Word
+
+----------------------------------------------------
+
+// DAD file format
+// DAD_FILE_HEADER + RCV_HISTORY_STRUCTex (RCV_EXE_HEADEx + Data ...) ...
+#defineSTKLABEL_LEN10// 股号数据长度,国内市场股号编码兼容钱龙
+#defineSTKNAME_LEN32// 股名长度
+//////////////////////////////////////////////////////////////////////////////////
+//补充数据头
+//数据头 m_dwHeadTag == EKE_HEAD_TAG
+#define EKE_HEAD_TAG0xffffffff
+typedef structtagRCV_EKE_HEADEx
+{
+DWORDm_dwHeadTag;// = EKE_HEAD_TAG
+WORDm_wMarket;// 市场类型
+charm_szLabel[STKLABEL_LEN];// 股票代码
+}RCV_EKE_HEADEx;
+//补充日线数据
+typedef union tagRCV_HISTORY_STRUCTEx
+{
+struct
+{
+time_tm_time;//UCT
+floatm_fOpen;//开盘
+floatm_fHigh;//最高
+floatm_fLow;//最低
+floatm_fClose;//收盘
+floatm_fVolume;//量
+floatm_fAmount;//额
+WORDm_wAdvance;//涨数,仅大盘有效
+WORDm_wDecline;//跌数,仅大盘有效
+};
+RCV_EKE_HEADExm_head;
+}RCV_HISTORY_STRUCTEx;
+typedef structtagDAD_FILE_HEADER
+{
+DWORDfileTag;// 0x33fc198c
+DWORDgenTime;// reserved,
+DWORDnumSymbols;
+DWORDfill0;// 1 for 5min, 0 for day
+}DAD_FILE_HEADER;
+
+-----------------------------------------------
+
+1/13/2006
+下载《分析家》数据文件并读入SAS数据集
+
+/********************************************
+注：
+一、本SAS程序将网站上的分析家分析件的日线数据（单日或多日）转换成SAS数据集(不需要先下载到本地)：
+
+调用格式为：%ReadFromFxjData(FxjDadFile,FxjDataSet)
+其中：
+FxjDadFile：分析家DAD数据文件的URL，
+如：http://www.fxj.net.cn/sjdownload/day/20050825.dad
+FxjDataSet：用于保存数据的数据集名称，格式为“逻辑库名.数据集名”，
+
+若省略逻辑库名，默认为Work逻辑库。
+如：FxjData 或 MyLib.FxjData
+举例：
+
+1)ReadFromFxjData(http://www.fxj.net.cn/sjdownload/day/20050825.dad,FxjData)
+
+将http://www.fxj.net.cn/sjdownload/day/20050825.dad
+读入到FxjData数据集。
+2)ReadFromFxjData(http://www.fxj.net.cn/sjdownload/day/20050825.dad
+,MyLib.FxjData)
+
+将http://www.fxj.net.cn/sjdownload/day/20050825.dad读入到Mylib.FxjData数据集。
+
+可输入多行%ReadFromFxjData(FxjDadFile,FxjDataSet)同时处理多个文件。
+
+二、分析家日数据文件URL可查看http://www.fxj.net.cn 。
+三、FxjData数据集变量含义：
+date:日期
+code:证券代码
+name:证券简称
+opening:开盘价，单位:元
+highest:最高价，单位:元
+lowest:最低价，单位:元
+closing:收盘价，单位:元
+volume:成交量，单位:股
+amount:成交金额，单位:元
+
+**********************************************/
+%macro ReadFromFxjData(FxjDadFile,FxjDataSet);
+/***********************************************
+以下一般不需要修改。程序有关说明及需要修改之处见程序注释。
+
+************************************************/
+data FxjDadHead;
+filename fxjfile url "&FxjDadFile";
+infile fxjfile recfm=f lrecl=16 firstobs=1 obs=1;
+input Flag ib4. RandNum ib4. Num ib4. Zero ib4.;
+if Flag ne 872159628 then
+do;
+put 'Invalid DAD File! Need Help? Visit RiskAge.com';
+abort;
+end;
+run;
+data &FxjDataSet;
+retain code name;
+infile fxjfile recfm=f lrecl=16 firstobs=2 STOPOVER N=2;
+input #1 date ib4. @;
+if date=-1 then
+do;
+input code $8. uk1 ib4. / uk2 ib4. name $8. uk3 ib4.;
+end;
+else
+do;
+input opening float4. highest float4. lowest float4.
+/ closing float4. volume float4. amount float4. uk4 ib4.;
+end;
+format code $10. name $10. ;
+code=trim(code);
+if date=-1 then delete;
+date=date/86400 + mdy(1,1,1970);
+if code in:('SH5','SZ18','SZ15','SZ16') and date>mdy(3,3,2003)
+then
+roundoffunit=0.001;
+else roundoffunit=0.01;
+format date yymmddd10.;
+opening=round(opening,roundoffunit);
+highest=round(highest,roundoffunit);
+lowest=round(lowest,roundoffunit);
+closing=round(closing,roundoffunit);
+volume=volume*100;
+drop uk1 uk2 uk3 uk4 roundoffunit;
+run;
+%mend; 
+
+
+
+//////////////////////////////////////////////////////////////////////
+分析家股票数据格式（代码对照表数据/分红配股数据/财务数据）
+  发布时间：2010-08-17 15:17:46   查看：617次  字体：【大 中 小】  
+
+#ifndef mFenxijia
+#define mFenxijia
+#include
+#include
+
+//分析家的代码对照表数据文件为*.SNT，分红配股数据文件为*.PWR，财务数据文件为*.FIN，可上分析家
+//网站上下载最新数据。
+
+//分析家的代码对照表数据文件为一文本文件，前面25个字节是标识信息，接着的是数据，每条记录17个字节。
+typedef struct
+{
+   BYTE pbSignature;       //字符串SuperStk Name Table回车换行
+   BYTE pbMarket;           //SH或SZ两个字符和回车换行
+} tstFxjSntHead;               //文件头
+typedef struct
+{
+   BYTE pbCode;             //证券代码
+   BYTE bH09;                  //0x09
+   BYTE pbName;             //证券名称
+   BYTE pbRetLF;            //回车换行
+} tstFxjSntData;               //每条数据
+
+
+//  分析家分红配股数据的文件头标识，共8个字节。
+typedef struct
+{
+   UINT uSignature1;           //0xff43c832
+   UINT uSignature2;           //0xffcc83dd
+} tstFxjFhpgHead;              //分红配股数据的文件头标识
+               
+//其后的数据按tunFxjFhpgRecord排列，直至结尾。               
+typedef struct
+{
+   UINT uSignature;            //标志 0xffffffff
+   BYTE pbMarket;           //市场 "SZ"=深圳,"SH"=上海
+   BYTE pbCode;             //代码
+   BYTE pbUnknown;          //未知
+} tstFxjFhpgRecordHead;        //记录头
+
+typedef struct
+{
+   time_t uDate;               //日期
+   float fZgsl;                //增股数量 （以股为单位）
+   float fPgsl;                //配股数量 （以股为单位）
+   float fPgjg;                //配股价格 （以股为单位）
+   float fFhje;                //分红金额 （以股为单位）
+} tstFxjFhpgRecordBody, *tpstFxjFhpgRecordBody;        //记录体
+               
+typedef union
+{
+   tstFxjFhpgRecordHead stHead;
+   tstFxjFhpgRecordBody stBody;
+} tunFxjFhpgRecord, *tpunFxjFhpgRecord;            //记录
+              
+//读入的数据应该先判断前四个字节是否为0xffffffff（记录头标志），即:
+//   是否tunFxjFhpgRecord.stHead.uSignature==0xffffffff ？
+//若是则按tstFxjFhpgRecordHead处理，这是每只股票数据的开头标识。
+//否则按tstFxjFhpgRecordBody处理，这是该股票某时日的分红配股数据，每次一条。
+#define mFxjFhpgSign1          0xff43c832     //分析家分红配股标识一
+#define mFxjFhpgSign2          0xffcc83dd     //分析家分红配股标识二
+#define mFxjFhpgRecSign        0xffffffff     //分析家分红配股记录标识
+
+
+
+//  分析家财务数据的文件头标识，共8个字节。
+typedef struct
+{
+   UINT uSignature;       //文件头标识，0x223fd90c
+   UINT uRecordLength;    //每条记录的长度，似乎都为0xa6(166)
+} tstFxjFinanceHead;
+               
+//  分析家财务数据文件逐条记录，166个字节。
+#define mFinanceDataCount         37 //财务数据项数
+typedef struct
+{
+   BYTE pbMarket;             //市场标志，"SH"=上海，"SZ"=深圳
+   BYTE pbUnknown1;           //未知，似乎都为0x01,0x00
+   BYTE pbCode;               //证券代码
+   UINT uUnknown1;               //未知，似乎都为0x00000000
+   time_t uDate;                 //时间
+   float pfFinanceData;      //财务数据         
+} tstFxjFinanceData, *tpstFxjFinanceData;
+
+/*财务数据顺序(pfFianceData各项意义)
+
+        序号        意义
+
+        0        总股本(万股),
+        1        国家股,      
+        2        发起人法人股,
+        3        法人股,      
+        4        B股,         
+        5        H股,         
+        6        流通A股,     
+        7        职工股,      
+        8        A2转配股,   
+        9        总资产(千元),
+        10        流动资产,   
+        11        固定资产,   
+        12        无形资产,   
+        13        长期投资,   
+        14        流动负债,   
+        15        长期负债,   
+        16        资本公积金,  
+        17        每股公积金,  
+        28        股东权益,   
+        19        主营收入,   
+        20        主营利润,   
+        21        其他利润,   
+        22        营业利润,   
+        23        投资收益,   
+        24        补贴收入,   
+        25        营业外收支,  
+        26        上年损益调整,
+        27        利润总额,   
+        28        税后利润,   
+        29        净利润,      
+        30        未分配利润,  
+        31        每股未分配,  
+        32        每股收益,   
+        33        每股净资产,  
+        34        调整每股净资,
+   35 股东权益比,  
+   36 净资收益率   
+*/
+
+#define mFxjCwsjSign          0x223fd90c                 //分析家财务数据标志
+
+
+//分析家的板块数据有很多文件，在其网站上下载为一个叫做BLOCK.ZIP的压缩包，包里有个block.def的定义文件
+//该文件定义了板块种类名和相关联的板块名，各板块包含的具体的证券代码在以各板块名命名（加.blk后缀）的
+//文件中。
+//比如block.def中定义：
+//
+//电力
+//电脑
+//电器
+//......
+//
+//安徽
+//北京
+//福建
+//......
+//就定义了行业和区域这两种板块类别，前者包含了电力、电脑、电器.......等等具体板块，后者包含了安徽、北京
+//、福建......等等具体板块，在以这些具体板块名命名的文件如：电力.blk、北京.blk中，存放着该板块的证券代码，
+//这些代码上海以SH深圳以SZ开头，如SH600776、SZ000751。
+
+//定义板块文件记录类型
+typedef struct
+{
+   BYTE bCode;                      //证券代码
+   BYTE bUnknown;                   //未知
+} tstFxjBlockFileRecord,
+*tpstFxjBlockFileRecord;;
+
+
+//定义单一板块类型
+typedef struct
+{
+   char szName;                    //板块名
+   WORD wCount;                        //证券总数
+   tpstFxjBlockFileRecord pstRecord;      //数据指针，该板块的所有证券代码表
+} tstFxjBlockDetail,
+*tpstFxjBlockDetail;
+
+//定义单一板块类别类型
+typedef struct
+{
+   char szName;                    //板块类别名
+   BYTE bCount;                        //本类别里的板块总数
+   tpstFxjBlockDetail pstDetail;          //本类别里的板块具体情况指针
+} tstFxjBlockSort,
+*tpstFxjBlockSort;
+
+
+
+
+class tclFenxijia
+{
+   char xszPath;               //分析家数据目录
+   WORD xwVersion;                  //版本
+   BYTE xbValid;                    //合法标识
+   tpstFxjFinanceData xpstFinData;  //财务数据指针
+   UINT xuFinCount;                 //财务数据记录总数
+   tpunFxjFhpgRecord xpunPwrData;   //分红配股记录指针
+   UINT xuPwrCount;                 //分红配股记录总数
+
+public:
+   //构造函数
+   tclFenxijia(char *aszPath="\\fxj", WORD awVersion=0x300);
+   //析构函数
+   ~tclFenxijia(void);
+   //读入某证券的财务数据, 返回为财务数据的个数, 如果返回为0则表明失败
+   //参数证券代码为分析家的表示方法, 上海以'SH'开头, 深圳以'SZ'开头
+   //参数apstData将被分配内存，用完后应该释放
+   UINT fnReadFinanceData(char *apbCode, tpstFxjFinanceData *apstData);
+   //读入分红配股数据, 返回为分红配股数据的个数, 如果返回为0则表明失败或者没有记录，
+   //参数证券代码为分析家的表示方法, 上海以'SH'开头, 深圳以'SZ'开头
+   //参数apstData将被分配内存，用完后应该释放
+   UINT fnReadFhpgData(char *apbCode, tpstFxjFhpgRecordBody *apstData);
+   //返回数据是否可用
+   inline BOOL IsValid(void)
+   {
+      return xbValid;
+   };
+
+   //读入板块数据，参数apstSort将会被自动分配内存，一定要用fnReleaseBlockData释放内存
+   BYTE fnReadBlockData(tpstFxjBlockSort *apstSort);
+   //释放板块数据空间，abCount为板块种类数
+   void fnReleaseBlockData( BYTE abCount, tpstFxjBlockSort apstSort );
+
+};
+
+#endif 
