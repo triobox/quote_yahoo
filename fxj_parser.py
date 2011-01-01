@@ -18,6 +18,9 @@ import os
 #from os.path 
 from time import strptime
 
+
+import plac
+
 __version__ = "$revision: 0.1_20101224$"
 __status__ = "prototype"
 
@@ -53,15 +56,6 @@ Maptable={
       'SH1C0003':'SH000016',
       'SH1C0004':'SH000017' }
 
-QUOTE_DAY_TITLE =','.join(['date','open','high','low','close',
-                            'vol','total'])
-QUOTE_DAY_STR_FMT = ','.join(['{0}','{1:.3f}','{2:.3f}',
-                              '{3:.3f}','{4:.3f}','{5:.0f}','{6:.3f}'])
-QUOTE_MIN_TITLE =','.join(['time','open','high','low','close',
-                            'vol','total'])
-QUOTE_DAY_TITLE = QUOTE_MIN_TITLE
-QUOTE_MIN_STR_FMT = QUOTE_DAY_STR_FMT
-
 TOHLCVS_TITLE =','.join(['time','open','high','low','close', 'vol','sum'])
 OHLCVS_TITLE =','.join(['open','high','low','close', 'vol','sum'])
 # str.format for quote with time
@@ -74,8 +68,8 @@ OHLCVS_STR_FMT = ','.join(['{0:.3f}','{1:.3f}','{2:.3f}',
 TIME_NUM2STR_FMT = '%Y%m%d,%H%M' 
 DATE_NUM2STR_FMT = '%Y%m%d'
 
-TOHLCVS_STR_FMT _DAY_ARR_FMT = 'I4,f4,f4,f4,f4,f4,f4'
-QUOTE_MIN_ARR_FMT = QUOTE_DAY_ARR_FMT
+TOHLCVS_ARR_FMT = 'I4,f4,f4,f4,f4,f4,f4'
+#QUOTE_MIN_ARR_FMT = QUOTE_DAY_ARR_FMT
 # ============================================================================
 # tools
 # ============================================================================
@@ -98,17 +92,31 @@ def dt_num2str (num,fmt='%Y%m%d'):
     return d.strftime(fmt)
 
 def readx2(file,fmt,position=None, number=1):
-    """read a number of data from file 
-    return a list of list according to given format, 
+    """read data from binary file
+    
+    parameter
+    ---------
+    @file: file point
+    @fmt: format of data struct, used to unpack binary byte
+    @position: posintion in file to start to read, default at file head
+    @number: the number of data struct to rread in, default is 1
+
+    return
+    ------
+    a tule of struct data if number is 1, otherwise a list of tuple 
     """        
     if position == None: position = file.tell()
     file.seek(position)
     size = struct.calcsize(fmt)
     x= file.read(size*number)
     try:
-        lst=[list(struct.unpack(fmt,x[i:i+size])) for i in range(0,size*number,size)]
+        if number > 1 :
+            lst=[struct.unpack(fmt,
+                    x[i:i+size]) for i in range(0,size*number,size)]
+        else:
+            lst=struct.unpack(fmt,x)
     except:
-        return []
+        return None
     
     #if isarray: return np.rec.array(lst, names=name)    
     return lst
@@ -300,7 +308,8 @@ def parse_dad(fp, is_daily=True, out_str=True):
         quote inside is str, otherwise numpy array               
     err = str of 'Total stock num, failed num, failed code' 
     """
-    # filetag:4 (33 FC 19 8C) = 872159628; unknown:4; record #:4; unknown4 
+    # filetag:4 (33 FC 19 8C) = 872159628; unknown:4; 
+    # record num: 4; unknown: 4 
     fmt_file_head='<IIII' 
     #DATA:4, symbol:8, unknown:4, unknown:4, name:8, unknow:4
     fmt_rec_head = '<I8sII8sI' 
@@ -316,17 +325,20 @@ def parse_dad(fp, is_daily=True, out_str=True):
         rec_number_block = 48  
         time_num2str_fmt = TIME_NUM2STR_FMT
     
+    result = {'data':None,'err':None}
+
     # count=[total number, failed number, failed code]
     count=[0,0,'']
     #  to be returned 
     dict_symbol={}
-    try:
-        # read file head
-        head = readx2(fp,fmt_file_head,position=0)[0]
     
-        if head[0]!=872159628:
-            raise myError('Not a fxj DAD file')
-
+    # read file head
+    head = readx2(fp,fmt_file_head,position=0)
+    if (head is None) or (head[0]!= 872159628):
+        result['err'] = 'Not a fxj DAD file'
+        return result
+        
+    try:
         # number of records
         rec_num = head[2]
 
@@ -335,13 +347,14 @@ def parse_dad(fp, is_daily=True, out_str=True):
        
         count[0] = rec_num 
         while tmp_index:
-        
+            #TODO: to improve read efferency
             # read 4 byte after file head
-            data = readx2(fp,'I')[0]
-        
+            data = readx2(fp,'I')
+            if data is None:
+                break
             # if date is 0xffffffff, it's a record head
             if data[0] == 0xffffffff:
-                rec = readx2(fp,fmt_rec_head,position=fp.tell()- 4)[0]
+                rec = readx2(fp,fmt_rec_head,position=fp.tell()- 4)
                 #tmp_code=rec[1]
                 # check if code need to exchange
                 tmp_code = rec[1].upper()
@@ -365,8 +378,8 @@ def parse_dad(fp, is_daily=True, out_str=True):
                 map(lambda x:x.pop(), rec)
                 # convert to array
                 rec_ = np.rec.array(rec, 
-                                formats=QUOTE_DAY_ARR_FMT,
-                                names=QUOTE_DAY_TITLE) 
+                                formats=TOHLCVS_ARR_FMT,
+                                names=TOHLCVS_TITLE) 
                 if out_str:
                     rec_ = quote2str(rec,time_fmt=time_num2str_fmt)
                 
@@ -412,12 +425,44 @@ def datedelta(datapath,date_ref= None):
         err = str(sys.exc_info()[:2])
         
     return lst, err           
-        
-def main():
-   pass  
-   
 
+@plac.annotations(
+    ftype=("data file type", 'positional', None,str,['day','min','pwr','fin']),    
+    file=("FXJ data file", 'positional', None),
+    code=("stock code",'option','c',str,None,"CODE"),
+    output=("output file",'option','o',str,None,"OUTPUT"),
+        )
+def main(ftype,file,code,output):
+    "parse FXJ data file"
+    
+    with open(file,'rb') as fp:
+        if ftype == 'day':
+            result = parse_dad(fp,is_daily=True)
+        elif ftype == 'min':
+            result = parse_dad(fp,is_daily=False)
+        elif ftype == 'pwr':
+            result = parse_pwr(fp)
+        else: # ftype == 'fin'
+            result = parse_fin(fp)
+        
+        #print(result[1])
+        f code:
+            rst = result[0].get(code.upper(),
+                        'Err: {0} not available'.format(code))
+            print rst
+            print('\n'.join(rst[0]))
+
+        if output:
+            with open(output,'w') as ofp:
+                for k,v in result[0].iteritems():
+                    #print k,v
+                    if len(v) == 0 : 
+                        #print('')
+                        continue
+                    for l in v[0]:
+                        ofp.write(','.join([k,l,'\n']))
+    
 if __name__ == "__main__":
-    main() 
+    plac.call(main) 
 
 
