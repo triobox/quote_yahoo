@@ -68,8 +68,19 @@ OHLCVS_STR_FMT = ','.join(['{0:.3f}','{1:.3f}','{2:.3f}',
 TIME_NUM2STR_FMT = '%Y%m%d,%H%M' 
 DATE_NUM2STR_FMT = '%Y%m%d'
 
-TOHLCVS_ARR_FMT = 'I4,f4,f4,f4,f4,f4,f4'
-#QUOTE_MIN_ARR_FMT = QUOTE_DAY_ARR_FMT
+TOHLCVS_ARR_FMT = 'I4,f4,f4,f4,f4,f4,f4' 
+TOHLCVS_ARR_NAME= 't,o,h,l,c,v,s' #last is unknow
+
+# split record fmt to str w/o date
+SPLIT_STR_FMT = ','.join(['{0:.3f}','{1:.3f}',
+                              '{2:.3f}','{3:.3f}'])
+# finance record fmt to str w/o date
+FIN_STR_FMT = ','.join(['{'+'{0}:.3f'.format(x)+'}' for x in range(37)])
+
+# the records number of each stock in DAD file 
+REC_NUM_DAILY = 1
+REC_NUM_5MIN = 48
+REC_NUM_1MIN = 240
 # ============================================================================
 # tools
 # ============================================================================
@@ -126,7 +137,7 @@ def quote2str(quote,time_fmt,out_fmt=OHLCVS_STR_FMT):
     
     parameter
     --------
-    @quote: list of quotes, like [[time,o,h,l,c,v,s],...] 
+    @quote: list of quotes, like [(time,o,h,l,c,v,s),...] 
         where, time is an int based on 1970-1-1
     @time_fmt: fmt to convert time int to str, 
         where, date like'%Y%m%d', date+time like '%Y%m%d-%H%M'
@@ -140,7 +151,7 @@ def quote2str(quote,time_fmt,out_fmt=OHLCVS_STR_FMT):
         where, time fmt depends on time_fmt
     """
     result = [','.join([dt_num2str(x[0],fmt=time_fmt),
-                out_fmt.format(*x[1:])]) for x in quote]
+                        out_fmt.format(*x[1:])]) for x in quote]
     
     return result
 
@@ -177,56 +188,75 @@ def parse_pwr(fp,out_str=True):
     # Sending /pershare(free), sending/pershare(charged), 
     # sending price, dividend
     fmt_rec_body = '<Iffff' 
-    #rec_length = 32
+    #rec_length = 20
     
+    rec_size = struct.calcsize(fmt_rec_body)
+    flg_size = struct.calcsize(fmt_file_head)
+
     # count=[code numbe,failed number,except]
-    count=[0,0,'']
+    #count=[0,0,'']
     #  to be returned 
-    result={}
+    #result={}
 
-    # read file head
-    head = readx2(fp,fmt_file_head,position=0)[0]
-
-    if head[0]!=4282632242 and head[1]!=4291593181:
-        raise myError('Not a fxj PWR file')
+    #  to be returned 
+    result = {'data':{},'err':{}}
     
-    while 1: #eof?
-        # read 4 byte after file head
-        data = readx2(fp,'I')
-        if len(data)==0:
+    # read file head
+    fp.seek(0)
+    raw_data = fp.read(flg_size)
+    head = struct.unpack(fmt_file_head,raw_data)
+    
+    if head[0]!=4282632242 and head[1]!=4291593181:
+        result['err'].update({'Not PWR file':''})
+        return result
+    
+    curr_code = ''
+    curr_data = []
+    while 1:
+        # read one record to check is head or body
+        raw_data = fp.read(rec_size)
+        if len(raw_data) < rec_size: 
+            # reach end of file
             break
-        # if date is 0xffffffff, it's a record head
-        if data[0][0] == 0xffffffff:
+        
+        if raw_data[:4] == '\xff\xff\xff\xff':
+            # it's a rec head 
             
-            rec = readx2(fp,fmt_rec_head,position=fp.tell()- 4)[0]
-            # check if code need to exchange
-            tmp_code = rec[1].upper()
-            if Maptable.has_key(tmp_code):
-                tmp_code = Maptable[tmp_code] 
-            result[tmp_code] = []
-            count[0] += 1
-            #tmp_1day_rec=[]
-            #time_tag = None
-            #tmp_index = tmp_index - 1
-            #print tmp_index, tmp_code, rec[4]
-        else:
-            # else, it's a record with time 
-            rec = readx2(fp,fmt_rec_body,
-                          position=fp.tell()- 4)[0]
-            if out_str:
-                rec = '%s,%.3f,%.3f,%.3f,%.3f' %(
-                            dt_num2str(int(rec[0])),
-                            rec[1],rec[2],rec[3],rec[4])
-
-            # append rec into dic 
-            if result.has_key(tmp_code):            
-                result[tmp_code].append(rec)
+            if len(curr_data) < 1:
+                tmp_err = 'Empty record'
+                if result['err'].has_key(tmp_err):
+                    result['err'][tmp_err].append(curr_code)
+                else:
+                    result['err'][tmp_err] = [curr_code]
             else:
-                count[1] += 1
-                count[2] += ','+tmp_code
-    err = '# Total stock %d, failed %s, error: %s' %tuple(count)
+                if out_str:
+                    # convert to string  
+                    curr_data = quote2str(curr_data,
+                                    time_fmt=DATE_NUM2STR_FMT,
+                                    out_fmt=SPLIT_STR_FMT)
+                    # here, no need to convert to array
+            # put the last data into result 
+            result['data'][curr_code] = curr_data    
+
+            # reset catch
+            curr_code = ''
+            curr_data = []
+             
+            # parse new record head
+            rec = struct.unpack(fmt_rec_head,raw_data)
+
+            curr_code = rec[1].upper()
+            # check if code need to exchange
+            curr_code = Maptable.get(curr_code,curr_code)
+
+        else: # it's a record body
+            ## parse one new record body 
+            rec = struct.unpack(fmt_rec_body,raw_data)
+            curr_data.append(rec)
+    
+    print('Total {0} stock converted.'.format(len(result['data'].keys())))
          
-    return [result,err]
+    return result
 
 def parse_fin(fp,out_str=True):
     """ read finance data (.FIN file) 
@@ -257,45 +287,61 @@ def parse_fin(fp,out_str=True):
     # data: f*37
     fmt_rec_body = '<2s2s6sII'+37*'f' 
     #rec_length = 32
+    rec_size = struct.calcsize(fmt_rec_body)
+    flg_size = struct.calcsize(fmt_file_head)
+    
+    #  to be returned 
+    result = {'data':{},'err':{}}
+    
+    
+    # read file head
+    #head = readx2(fp,fmt_file_head,position=0)[0]
+
+    #if head[0]!=574609676:
+    #    raise myError('Not a fxj FIN file')
 
     # read file head
-    head = readx2(fp,fmt_file_head,position=0)[0]
-
+    fp.seek(0)
+    raw_data = fp.read(flg_size)
+    head = struct.unpack(fmt_file_head,raw_data)
+    
     if head[0]!=574609676:
-        raise myError('Not a fxj FIN file')
+        raise
+        result['err'].update({'Not FIN file':''})
+        return result
 
     rec_len = head[1] #166
     
-    # count=[code numbe,failed number,except]
-    count=[0,0,'']
-    #  to be returned 
-    result={}
-
     while 1:
-        data = readx2(fp,fmt_rec_body)
-        if len(data) == 0:
+        # read one record to check is head or body
+        raw_data = fp.read(rec_size)
+        if len(raw_data) < rec_size: 
+            # reach end of file
             break
-        tmp_code = data[0][1]+data[0][2]
-        if Maptable.has_key(tmp_code):
-            tmp_code = Maptable[tmp_code] 
-        if result.has_key(tmp_code):
-            count[1] += 1
-            count[2] = ','.join(count[2],tmp_code)
-        else:    
-            result[tmp_code] = data[0][4:]
-        count[0] += 1
 
-    err = '# Total stock %d, failed %s, error: %s' %tuple(count)
+        rec = struct.unpack(fmt_rec_body,raw_data)
+        
+        curr_code = rec[0].upper()+rec[2]
+        # check if code need to exchange
+        curr_code = Maptable.get(curr_code,curr_code)
+        if out_str:
+            # convert to string  
+            curr_data = quote2str([rec[4:]],
+                                 time_fmt=DATE_NUM2STR_FMT,
+                                    out_fmt=FIN_STR_FMT)
+        result['data'][curr_code]=curr_data 
+
+    print('Total {0} records converted'.format(len(result['data'].keys())))
+        
          
-    return [result,err]
+    return result
 
-def parse_dad(fp, is_daily=True, out_str=True): 
+def parse_dad(fp, out_str=True): 
     """ read daily data (.DAD file)
     
     parameter
     ---------
     @fp: file point of dad file
-    @is_daily: input is daily (default) data or 5-min data
     @out_str: ouput string of divid data if True(default) 
 
     return
@@ -306,7 +352,7 @@ def parse_dad(fp, is_daily=True, out_str=True):
                              'date#2, open, high,low,close,volume,sum', 
                              ...], 'SH600001': [...],...}
         quote inside is str, otherwise numpy array               
-    err = str of 'Total stock num, failed num, failed code' 
+    err = {err type: [code,code]} 
     """
     # filetag:4 (33 FC 19 8C) = 872159628; unknown:4; 
     # record num: 4; unknown: 4 
@@ -314,90 +360,83 @@ def parse_dad(fp, is_daily=True, out_str=True):
     #DATA:4, symbol:8, unknown:4, unknown:4, name:8, unknow:4
     fmt_rec_head = '<I8sII8sI' 
     #DATE, OPEN, HIGH, LOW, CLOSE, VOLUME, SUM, unknow
-    fmt_rec_data = '<IffffffI' 
-    rec_length = 32
-    
-    if is_daily:
-        rec_number_block = 1
-        time_num2str_fmt = DATE_NUM2STR_FMT
-    
-    else:
-        rec_number_block = 48  
-        time_num2str_fmt = TIME_NUM2STR_FMT
-    
-    result = {'data':None,'err':None}
+    fmt_rec_body = '<IffffffI' 
+    rec_size = struct.calcsize(fmt_rec_head)
+    flg_size = struct.calcsize(fmt_file_head)
 
-    # count=[total number, failed number, failed code]
-    count=[0,0,'']
     #  to be returned 
-    dict_symbol={}
+    result = {'data':{},'err':{}}
     
     # read file head
-    head = readx2(fp,fmt_file_head,position=0)
-    if (head is None) or (head[0]!= 872159628):
-        result['err'] = 'Not a fxj DAD file'
+    fp.seek(0)
+    raw_data = fp.read(flg_size)
+    head = struct.unpack(fmt_file_head,raw_data)
+    
+    if head[0]!= 872159628:
+        result['err'].update({'Not DAD file':''})
         return result
+    
+    # number of records
+    rec_num = head[2]
+    
+    curr_code = ''
+    curr_data = []
+    while 1:
+        # read one record to check is head or body
+        raw_data = fp.read(rec_size)
+        if len(raw_data) < rec_size: 
+            # reach end of file
+            break
         
-    try:
-        # number of records
-        rec_num = head[2]
-
-        tmp_code = None
-        tmp_index = rec_num
-       
-        count[0] = rec_num 
-        while tmp_index:
-            #TODO: to improve read efferency
-            # read 4 byte after file head
-            data = readx2(fp,'I')
-            if data is None:
-                break
-            # if date is 0xffffffff, it's a record head
-            if data[0] == 0xffffffff:
-                rec = readx2(fp,fmt_rec_head,position=fp.tell()- 4)
-                #tmp_code=rec[1]
-                # check if code need to exchange
-                tmp_code = rec[1].upper()
-                if Maptable.has_key(tmp_code):
-                    tmp_code = Maptable[tmp_code] 
-                #dict_symbol[tmp_code] = [rec[4]]
-                dict_symbol[tmp_code] = []
-                #tmp_1day_rec=[]
-                #time_tag = None
-                tmp_index = tmp_index - 1
-                #print tmp_index, tmp_code, rec[4]
-            # else, it's a record with time 
-            else: 
-                # read 48 rec one times if minute dad
-                rec = readx2(fp, fmt_rec_data,
-                        position=fp.tell()- 4,
-                        number=rec_number_block)
-                if len(rec) == 0: continue
+        if raw_data[:4] == '\xff\xff\xff\xff':
+            # it's a rec head 
+            # first put the last records into result 
+            if curr_code != '' :
                 
-                # remove last unkown element of each record
-                map(lambda x:x.pop(), rec)
-                # convert to array
-                rec_ = np.rec.array(rec, 
-                                formats=TOHLCVS_ARR_FMT,
-                                names=TOHLCVS_TITLE) 
-                if out_str:
-                    rec_ = quote2str(rec,time_fmt=time_num2str_fmt)
-                
-                # append rec into dic 
-                if dict_symbol.has_key(tmp_code):            
-                    dict_symbol[tmp_code].append(rec_)
+                if len(curr_data) == REC_NUM_DAILY:
+                    dt_num2str_fmt = DATE_NUM2STR_FMT
+                elif len(curr_data) == REC_NUM_5MIN:
+                    dt_num2str_fmt = TIME_NUM2STR_FMT
                 else:
-                    count[1] += 1
-                    count[2] = ','.join(count[2],tmp_code)
-                    #print '\nLost symbol: %s ' %tmp_code
-    
-    except:
-        raise
+                    tmp_err = 'Wrong record num'
+                    if result['err'].has_key(tmp_err):
+                        result['err'][tmp_err].append(curr_code)
+                    else:
+                        result['err'][tmp_err] = [curr_code]
+                    continue
 
-    #tlist=[x for x in abnormal_list[1][1:] if x not in abnormal_list[2][1:]]
-    err = 'Total {0} stock, {1} failed,  error code: {2}'.format(*count)
-    
-    return [dict_symbol,err] 
+                if out_str:
+                    # convert to string  
+                    tmp_data = quote2str(curr_data,
+                                    time_fmt=dt_num2str_fmt)
+                else: 
+                    # convert to array
+                    tmp_data = np.rec.array(curr_data, 
+                                        formats=TOHLCVS_ARR_FMT,
+                                        names=TOHLCVS_ARR_NAME) 
+                result['data'][curr_code] = tmp_data    
+
+            # reset catch
+            curr_code = ''
+            curr_data = []
+             
+            # parse new record head
+            rec = struct.unpack(fmt_rec_head,raw_data)
+
+            curr_code = rec[1].upper()
+            # check if code need to exchange
+            curr_code = Maptable.get(curr_code,curr_code)
+
+        else: # it's a record body
+            #if is_daily:  
+            ## parse one new record body 
+            rec = struct.unpack(fmt_rec_body,raw_data)
+            curr_data.append(rec[:-1])
+
+    print('Total {0} records, {1} converted.'.format(rec_num,
+                                        len(result['data'].keys())))
+
+    return result 
 
 def datedelta(datapath,date_ref= None):
     err ='# They are up to date.'
@@ -437,30 +476,30 @@ def main(ftype,file,code,output):
     
     with open(file,'rb') as fp:
         if ftype == 'day':
-            result = parse_dad(fp,is_daily=True)
+            result = parse_dad(fp)
         elif ftype == 'min':
-            result = parse_dad(fp,is_daily=False)
+            result = parse_dad(fp)
         elif ftype == 'pwr':
             result = parse_pwr(fp)
         else: # ftype == 'fin'
             result = parse_fin(fp)
         
         #print(result[1])
-        f code:
-            rst = result[0].get(code.upper(),
-                        'Err: {0} not available'.format(code))
-            print rst
-            print('\n'.join(rst[0]))
+        if code:
+            rst = result['data'].get(code.upper(),
+                        ['Err: {0} not available'.format(code)])
+            #print rst
+            print('\n'.join(rst))
 
         if output:
             with open(output,'w') as ofp:
-                for k,v in result[0].iteritems():
+                for k,v in result['data'].iteritems():
                     #print k,v
                     if len(v) == 0 : 
                         #print('')
                         continue
-                    for l in v[0]:
-                        ofp.write(','.join([k,l,'\n']))
+                    for l in v:
+                        ofp.writelines(','.join([k,l])+'\n')
     
 if __name__ == "__main__":
     plac.call(main) 
