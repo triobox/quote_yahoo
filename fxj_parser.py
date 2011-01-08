@@ -18,6 +18,7 @@ import os
 #from os.path 
 from time import strptime
 
+from tools import dtnum2str
 
 import plac
 
@@ -93,14 +94,6 @@ class myError(Exception):
     def __str__(self):
         return str(self.msg)
 
-def dt_num2str (num,fmt='%Y%m%d'):
-    """ convert datetime int to datetime str
-    @num is an int of second since 1970-01-01-0-0-0
-    @fmt is str_fmt
-    """
-    d = dt.datetime(1970,1,1,0,0) + dt.timedelta(seconds=int(num))
-
-    return d.strftime(fmt)
 
 def readx2(file,fmt,position=None, number=1):
     """read data from binary file
@@ -150,7 +143,7 @@ def quote2str(quote,time_fmt,out_fmt=OHLCVS_STR_FMT):
     result: list of str, like['20100927-0930,2.13,,,,',...]
         where, time fmt depends on time_fmt
     """
-    result = [','.join([dt_num2str(x[0],fmt=time_fmt),
+    result = [','.join([dtnum2str(x[0],fmt=time_fmt),
                         out_fmt.format(*x[1:])]) for x in quote]
     
     return result
