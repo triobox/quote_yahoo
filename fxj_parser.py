@@ -147,9 +147,14 @@ def quote2str(quote,time_fmt,out_fmt=OHLCVS_STR_FMT):
     result: list of str, like['20100927-0930,2.13,,,,',...]
         where, time fmt depends on time_fmt
     """
+<<<<<<< HEAD
     fmt_size = len(out_fmt.split(','))
     result = [','.join([dtnum2str(x[0],fmt=time_fmt),
                         out_fmt.format(*x[1:fmt_size+1])]) for x in quote]
+=======
+    result = [','.join([dtnum2str(x[0],fmt=time_fmt),
+                        out_fmt.format(*x[1:])]) for x in quote]
+>>>>>>> http/master
     
     return result
 
