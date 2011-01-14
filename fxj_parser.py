@@ -18,6 +18,7 @@ import os
 #from os.path 
 from time import strptime
 
+from tools import dtnum2str
 
 import plac
 
@@ -68,14 +69,18 @@ OHLCVS_STR_FMT = ','.join(['{0:.3f}','{1:.3f}','{2:.3f}',
 TIME_NUM2STR_FMT = '%Y%m%d,%H%M' 
 DATE_NUM2STR_FMT = '%Y%m%d'
 
-TOHLCVS_ARR_FMT = 'I4,f4,f4,f4,f4,f4,f4' 
-TOHLCVS_ARR_NAME= 't,o,h,l,c,v,s' #last is unknow
+TOHLCVS_ARR_FMT = 'I4,f4,f4,f4,f4,f4,f4,f4' 
+TOHLCVS_ARR_NAME= 't,o,h,l,c,v,s,u' #last is unknow
 
 # split record fmt to str w/o date
 SPLIT_STR_FMT = ','.join(['{0:.3f}','{1:.3f}',
                               '{2:.3f}','{3:.3f}'])
+SPLIT_ARR_FMT = 'I4,f4,f4,f4,f4' 
+SPLIT_ARR_NAME= 'date,free,changed,price,divid' 
+
 # finance record fmt to str w/o date
 FIN_STR_FMT = ','.join(['{'+'{0}:.3f'.format(x)+'}' for x in range(37)])
+FIN_ARR_FMT = 'I4'+',f4'*37 
 
 # the records number of each stock in DAD file 
 REC_NUM_DAILY = 1
@@ -93,16 +98,8 @@ class myError(Exception):
     def __str__(self):
         return str(self.msg)
 
-def dt_num2str (num,fmt='%Y%m%d'):
-    """ convert datetime int to datetime str
-    @num is an int of second since 1970-01-01-0-0-0
-    @fmt is str_fmt
-    """
-    d = dt.datetime(1970,1,1,0,0) + dt.timedelta(seconds=int(num))
 
-    return d.strftime(fmt)
-
-def readx2(file,fmt,position=None, number=1):
+def readx(file,fmt,position=None, number=1):
     """read data from binary file
     
     parameter
@@ -150,30 +147,83 @@ def quote2str(quote,time_fmt,out_fmt=OHLCVS_STR_FMT):
     result: list of str, like['20100927-0930,2.13,,,,',...]
         where, time fmt depends on time_fmt
     """
-    result = [','.join([dt_num2str(x[0],fmt=time_fmt),
-                        out_fmt.format(*x[1:])]) for x in quote]
+    fmt_size = len(out_fmt.split(','))
+    result = [','.join([dtnum2str(x[0],fmt=time_fmt),
+                        out_fmt.format(*x[1:fmt_size+1])]) for x in quote]
     
     return result
+
+def _iter_record(fp,
+                rec_size,
+                fmt_rec_head,
+                fmt_rec_body,
+                out_dtfmt,
+                out_strfmt,
+                out_arrfmt,
+                out_arrname):
+    """return a generator of records, [code, data list]
+    """
+    curr_code = ''
+    curr_data = []
+    while 1:
+        # read one record to check is head or body
+        raw_data = fp.read(rec_size)
+        if not raw_data: 
+            # reach end of file
+            break
+        
+        if raw_data[:4] == '\xff\xff\xff\xff':
+            # it's a rec head 
+            if curr_code:
+                if out_dtfmt:
+                    # convert to string  
+                    curr_data = quote2str(curr_data,
+                                    time_fmt=out_dtfmt,
+                                    out_fmt=out_strfmt)
+                    #convert to array
+                else:
+                    curr_data = np.rec.array(curr_data, 
+                                        formats=out_arrfmt,
+                                        names=out_arrname) 
+                rst = [curr_code,curr_data]
+                #print rst
+                yield rst   
+            # reset catch
+            curr_code = ''
+            curr_data = []
+             
+            # parse new record head
+            rec = struct.unpack(fmt_rec_head,raw_data)
+
+            curr_code = rec[1].upper()
+            # check if code need to exchange
+            curr_code = Maptable.get(curr_code,curr_code)
+
+        else: # it's a record body
+            ## parse one new record body 
+            rec = struct.unpack(fmt_rec_body,raw_data)
+            curr_data.append(rec)
 
 # ============================================================================
 # functions
 # ============================================================================
 
-def parse_pwr(fp,out_str=True):
+def parse_pwr(fp,out_dtfmt='%Y%m%d'):
     """ read dividend & split data (.PWR file)
     
     parameter
     ---------
     @fp: file point of pwr file
-    @out_str: ouput string of divid data if True(default) 
+    @out_dtfmt: datetime fmt of output string. If given, output are string,
+        otherwise, if None or '', output are numpy array.
 
     return
     ------
-    a list = [divid_dict, err]
-    where: divid_dict ={'SH500001':
-                          ['20050623,0.000,0.000,0.000,0.125', 
-                           '20051130,0.320,0.000,0.000,0.000', ...],
-                         'SZ000200': ...}
+    a generator of finance data for one stock each time, like,
+        [code, ['20050623,0.000,0.000,0.000,0.125',
+                 '20051130,0.320,0.000,0.000,0.000', ...],
+    data inside can be str or numpy array, depends on out_dtfmt.
+    generator is None if err
     """
     # filetag_1:4B = /0xff43c832 or 4282632242L; 
     # filetag_2:4B = /0xffcc83dd or 4291593181L; 
@@ -193,88 +243,70 @@ def parse_pwr(fp,out_str=True):
     rec_size = struct.calcsize(fmt_rec_body)
     flg_size = struct.calcsize(fmt_file_head)
 
-    # count=[code numbe,failed number,except]
-    #count=[0,0,'']
-    #  to be returned 
-    #result={}
-
-    #  to be returned 
-    result = {'data':{},'err':{}}
-    
     # read file head
     fp.seek(0)
     raw_data = fp.read(flg_size)
     head = struct.unpack(fmt_file_head,raw_data)
     
     if head[0]!=4282632242 and head[1]!=4291593181:
-        result['err'].update({'Not PWR file':''})
-        return result
+        print('Not PWR file: {0}'.format(fp.name))
+        return None
     
-    curr_code = ''
-    curr_data = []
-    while 1:
-        # read one record to check is head or body
-        raw_data = fp.read(rec_size)
-        if len(raw_data) < rec_size: 
-            # reach end of file
-            break
-        
-        if raw_data[:4] == '\xff\xff\xff\xff':
-            # it's a rec head 
-            
-            if len(curr_data) < 1:
-                tmp_err = 'Empty record'
-                if result['err'].has_key(tmp_err):
-                    result['err'][tmp_err].append(curr_code)
-                else:
-                    result['err'][tmp_err] = [curr_code]
-            else:
-                if out_str:
-                    # convert to string  
-                    curr_data = quote2str(curr_data,
-                                    time_fmt=DATE_NUM2STR_FMT,
-                                    out_fmt=SPLIT_STR_FMT)
-                    # here, no need to convert to array
-            # put the last data into result 
-            result['data'][curr_code] = curr_data    
-
-            # reset catch
-            curr_code = ''
-            curr_data = []
-             
-            # parse new record head
-            rec = struct.unpack(fmt_rec_head,raw_data)
-
-            curr_code = rec[1].upper()
-            # check if code need to exchange
-            curr_code = Maptable.get(curr_code,curr_code)
-
-        else: # it's a record body
-            ## parse one new record body 
-            rec = struct.unpack(fmt_rec_body,raw_data)
-            curr_data.append(rec)
+    return _iter_record(fp=fp,
+                rec_size=rec_size,
+                fmt_rec_head=fmt_rec_head,
+                fmt_rec_body=fmt_rec_body,
+                out_dtfmt=out_dtfmt,
+                out_strfmt=SPLIT_STR_FMT,
+                out_arrfmt=SPLIT_ARR_FMT,
+                out_arrname=SPLIT_ARR_FMT)
     
-    print('Total {0} stock converted.'.format(len(result['data'].keys())))
-         
-    return result
 
-def parse_fin(fp,out_str=True):
+def parse_fin(fp,out_dtfmt='%Y%m%d'):
     """ read finance data (.FIN file) 
 
     parameter
     ---------
     @fp: file point of fin file
-    @out_str: ouput string of divid data if True(default) 
+    @out_dtfmt: datetime fmt of output string. If given, output are string,
+        otherwise, if None or '', output are numpy array.
 
     return
     ------
-    a list = [divid_dict, err]
-    where: divid_dict ={'SH500001':
-                          ['20050623,0.000,0.000,0.000,0.125', 
-                           '20051130,0.320,0.000,0.000,0.000', ...],
-                         'SZ000200': ...}
+    a generator of finance data for one stock each time, like,
+        [code, ['20050623,0.000,0.000,0.000,0.125,...']
+    data inside can be str or numpy array, depends on out_dtfmt.
+    generator is None if err
     """
     
+    def _iter_parse(fp,rec_size,
+                    fmt_rec_body,
+                    out_dtmft,
+                    out_strfmt,
+                    out_arrfmt):
+        while 1:
+            # read one record to check is head or body
+            raw_data = fp.read(rec_size)
+            if not raw_data: 
+                # reach end of file
+                break
+
+            rec = struct.unpack(fmt_rec_body,raw_data)
+            
+            curr_code = rec[0].upper()+rec[2]
+            # check if code need to exchange
+            curr_code = Maptable.get(curr_code,curr_code)
+            if out_dtfmt:
+                # convert to string  
+                curr_data = quote2str([rec[4:]],
+                                     time_fmt=out_dtmft,
+                                        out_fmt=out_strfmt)
+            else:
+                curr_data = np.rec.array(curr_data, 
+                                            formats=out_arrfmt) 
+            rst = [curr_code,curr_data]
+            yield rst
+
     # filetag_1:4B  =/0x223fd90c (574609676)  
     # len of rec:4B =/0xa6 (166) 
     fmt_file_head='<II' 
@@ -289,16 +321,6 @@ def parse_fin(fp,out_str=True):
     #rec_length = 32
     rec_size = struct.calcsize(fmt_rec_body)
     flg_size = struct.calcsize(fmt_file_head)
-    
-    #  to be returned 
-    result = {'data':{},'err':{}}
-    
-    
-    # read file head
-    #head = readx2(fp,fmt_file_head,position=0)[0]
-
-    #if head[0]!=574609676:
-    #    raise myError('Not a fxj FIN file')
 
     # read file head
     fp.seek(0)
@@ -306,53 +328,35 @@ def parse_fin(fp,out_str=True):
     head = struct.unpack(fmt_file_head,raw_data)
     
     if head[0]!=574609676:
-        raise
-        result['err'].update({'Not FIN file':''})
-        return result
+        print('Not FIN file: {0}'.format(fp.name))
+        return None
 
     rec_len = head[1] #166
     
-    while 1:
-        # read one record to check is head or body
-        raw_data = fp.read(rec_size)
-        if len(raw_data) < rec_size: 
-            # reach end of file
-            break
+    return _iter_parse( fp=fp,
+                        rec_size=rec_size,
+                        fmt_rec_body=fmt_rec_body,
+                        out_dtmft=out_dtfmt,
+                        out_strfmt=FIN_STR_FMT, 
+                        out_arrfmt=FIN_ARR_FMT)
+    #return 
 
-        rec = struct.unpack(fmt_rec_body,raw_data)
-        
-        curr_code = rec[0].upper()+rec[2]
-        # check if code need to exchange
-        curr_code = Maptable.get(curr_code,curr_code)
-        if out_str:
-            # convert to string  
-            curr_data = quote2str([rec[4:]],
-                                 time_fmt=DATE_NUM2STR_FMT,
-                                    out_fmt=FIN_STR_FMT)
-        result['data'][curr_code]=curr_data 
-
-    print('Total {0} records converted'.format(len(result['data'].keys())))
-        
-         
-    return result
-
-def parse_dad(fp, out_str=True): 
-    """ read daily data (.DAD file)
+def parse_dad(fp, out_dtfmt='%Y%m%d,%H%M'): 
+    """ read stock quote data from fxj format file (.DAD file)
     
     parameter
     ---------
     @fp: file point of dad file
-    @out_str: ouput string of divid data if True(default) 
+    @out_dtfmt: datetime fmt of output string. If given, output are string,
+        otherwise, if None or '', output are numpy array.
 
     return
     ------
-    a list = [daily_dict, err]
-        where, daily_dict = {'SH000001':
-                            ['date#1, open, high,low,close,volume,sum', 
-                             'date#2, open, high,low,close,volume,sum', 
-                             ...], 'SH600001': [...],...}
-        quote inside is str, otherwise numpy array               
-    err = {err type: [code,code]} 
+    a generator of data for one stock each time, like, 
+    [code, ['date#1, open, high,low,close,volume,sum', 
+          'date#2, open, high,low,close,volume,sum', ...]]
+    data inside can be str or numpy array, depends on out_dtfmt.
+    generator is None if err
     """
     # filetag:4 (33 FC 19 8C) = 872159628; unknown:4; 
     # record num: 4; unknown: 4 
@@ -364,143 +368,90 @@ def parse_dad(fp, out_str=True):
     rec_size = struct.calcsize(fmt_rec_head)
     flg_size = struct.calcsize(fmt_file_head)
 
-    #  to be returned 
-    result = {'data':{},'err':{}}
-    
     # read file head
     fp.seek(0)
     raw_data = fp.read(flg_size)
     head = struct.unpack(fmt_file_head,raw_data)
     
     if head[0]!= 872159628:
-        result['err'].update({'Not DAD file':''})
-        return result
+        print('Not DAD file: {0}'.format(fp.name))
+        return 
     
     # number of records
     rec_num = head[2]
     
-    curr_code = ''
-    curr_data = []
-    while 1:
-        # read one record to check is head or body
-        raw_data = fp.read(rec_size)
-        if len(raw_data) < rec_size: 
-            # reach end of file
-            break
-        
-        if raw_data[:4] == '\xff\xff\xff\xff':
-            # it's a rec head 
-            # first put the last records into result 
-            if curr_code != '' :
-                
-                if len(curr_data) == REC_NUM_DAILY:
-                    dt_num2str_fmt = DATE_NUM2STR_FMT
-                elif len(curr_data) == REC_NUM_5MIN:
-                    dt_num2str_fmt = TIME_NUM2STR_FMT
-                else:
-                    tmp_err = 'Wrong record num'
-                    if result['err'].has_key(tmp_err):
-                        result['err'][tmp_err].append(curr_code)
-                    else:
-                        result['err'][tmp_err] = [curr_code]
-                    continue
+    return _iter_record(fp=fp,
+                rec_size=rec_size,
+                fmt_rec_head=fmt_rec_head,
+                fmt_rec_body=fmt_rec_body,
+                out_dtfmt=out_dtfmt,
+                out_strfmt=OHLCVS_STR_FMT,
+                out_arrfmt=TOHLCVS_ARR_FMT,
+                out_arrname=TOHLCVS_ARR_NAME)
 
-                if out_str:
-                    # convert to string  
-                    tmp_data = quote2str(curr_data,
-                                    time_fmt=dt_num2str_fmt)
-                else: 
-                    # convert to array
-                    tmp_data = np.rec.array(curr_data, 
-                                        formats=TOHLCVS_ARR_FMT,
-                                        names=TOHLCVS_ARR_NAME) 
-                result['data'][curr_code] = tmp_data    
+# ============================================================================
+# test
+# ============================================================================
+def test(fn_lst):
+    """test
+    """
+    for x in fn_lst:
+        with open(x,'rb') as fp:
+            base, ext = os.path.splitext(x)
+            if ext.lower() == 'dad':
+                result = parse_dad(fp)
+            elif ext.lower() == 'pwr':
+                result = parse_pwr(fp)
+            elif ext.lower() == 'fin':
+                result = parse_fin(fp)
+         
 
-            # reset catch
-            curr_code = ''
-            curr_data = []
-             
-            # parse new record head
-            rec = struct.unpack(fmt_rec_head,raw_data)
-
-            curr_code = rec[1].upper()
-            # check if code need to exchange
-            curr_code = Maptable.get(curr_code,curr_code)
-
-        else: # it's a record body
-            #if is_daily:  
-            ## parse one new record body 
-            rec = struct.unpack(fmt_rec_body,raw_data)
-            curr_data.append(rec[:-1])
-
-    print('Total {0} records, {1} converted.'.format(rec_num,
-                                        len(result['data'].keys())))
-
-    return result 
-
-def datedelta(datapath,date_ref= None):
-    err ='# They are up to date.'
-    lst=[]
-    file= 'sh000001.txt' if date_ref is None else date_ref
-    try: 
-        with open(os.path.join(datapath,file)) as fp:
-                data=[i.strip('\n') for i in fp.readlines() if len(
-                    i.strip('\n').strip(' '))>0 ]
-
-        startdate=datetime.date(*strptime(data[-1].split(',')[0], 
-                                            "%Y%m%d")[0:3])
-        
-        
-        d= startdate
-        while 1:
-            d += datetime.timedelta(1)
-            if d > datetime.date.today(): 
-                break
-            if d.isoweekday( ) < 6: 
-                lst.append(d.strftime("%Y%m%d"))
-        
-    except:
-        #print Error 
-        err = str(sys.exc_info()[:2])
-        
-    return lst, err           
-
+# ============================================================================
+# defination
+# ============================================================================
 @plac.annotations(
-    ftype=("data file type", 'positional', None,str,['day','min','pwr','fin']),    
-    file=("FXJ data file", 'positional', None),
+    fname=("FXJ data file", 'positional', None),
     code=("stock code",'option','c',str,None,"CODE"),
     output=("output file",'option','o',str,None,"OUTPUT"),
         )
-def main(ftype,file,code,output):
+def main(fname,code,output):
     "parse FXJ data file"
     
-    with open(file,'rb') as fp:
-        if ftype == 'day':
+    with open(fname,'rb') as fp:
+        base, ext = os.path.splitext(fname)
+        if ext.lower() == '.dad':
             result = parse_dad(fp)
-        elif ftype == 'min':
-            result = parse_dad(fp)
-        elif ftype == 'pwr':
+        elif ext.lower() == '.pwr':
             result = parse_pwr(fp)
-        else: # ftype == 'fin'
+        elif ext.lower() == '.fin':
             result = parse_fin(fp)
+        else:
+            print('not a valid FXJ file!')
+            return
+
+        if not result:
+            return
         
-        #print(result[1])
         if code:
-            rst = result['data'].get(code.upper(),
-                        ['Err: {0} not available'.format(code)])
-            #print rst
-            print('\n'.join(rst))
+            for r in result:
+                if r[0].upper() == code.upper():
+                    print('\n'.join(r[1]))    
+                    result.close()
+                    return
+            print('{0} is not available in {1}'.format(code,fname))
+            return
 
         if output:
             with open(output,'w') as ofp:
-                for k,v in result['data'].iteritems():
-                    #print k,v
-                    if len(v) == 0 : 
-                        #print('')
-                        continue
-                    for l in v:
-                        ofp.writelines(','.join([k,l])+'\n')
-    
+                count = 0
+                for r in result:
+                    #print r
+                    count += 1
+                    for e in r[1]:
+                        ofp.writelines(','.join([r[0],e])+'\n')
+                print('Output total {0} stocks'.format(count)) 
+            return
+
 if __name__ == "__main__":
     plac.call(main) 
 

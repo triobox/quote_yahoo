@@ -27,6 +27,9 @@ import numpy as np
 import tables as tb
 #from matplotlib.dates import date2num,num2date
 
+
+from tools import  market_time_series
+
 __version__ = "$revision: 0.1_20101224$"
 __status__ = "prototype"
 
@@ -56,51 +59,6 @@ YAHOO_DIVID = 'http://finance.cn.yahoo.com/mirror/F10/{0}_d_6.html?r={1}'
 # ============================================================================
 # Tools
 # ============================================================================
-def market_time_series(step, day=None, 
-            in_fmt='%Y%m%d', out_fmt='%Y%m%d,%H%M',
-            time_slot=[('0930',120),('1300',120)]):
-    """create time series of market open time, 
-    
-    Parameters
-    ----------
-    @step: time step in minute, shou be [1,5,10,15,30,60]     
-    @day: date base, can be datetime obj or str with format gived in_fmt          
-    @in_fmt: string formt for parsing input day if it given as string,
-                like day as '20101207', in_fmt as '%Y%m%d'
-    @out_fmt: string formt for output time string if given,  
-                otherwise return datetime obj
-    @time_slot: market open time slots, [(start,dur),(start,dur)]              
-        where, start,like 0930, dur -> duration in minutes
-    
-    Returns
-    -------
-    result: string or datetime obj list of market  timeserise 
-    """
-    result=[]
-    if day is None:
-        obj_day = dt.datetime.today()
-    elif isinstance(day, dt.datetime):
-        obj_day = day
-    elif isinstance(day,str):
-        try:
-            obj_day=dt.datetime.strptime(day,in_fmt)
-        except:
-            raise
-
-    str_day = obj_day.strftime('%Y%m%d')        
-    
-    try:
-        for stp, dur in time_slot:
-            start = dt.datetime.strptime(str_day+stp,'%Y%m%d%H%M')    
-            for x in range(int(dur)/int(step)):
-                t = start + dt.timedelta(minutes=int(step))*(x+1) 
-                if out_fmt is not None:
-                    result.append(t.strftime(out_fmt))
-                else:
-                    result.append(t)
-    except :
-        raise
-    return result
 
 # ============================================================================
 # Quoter
