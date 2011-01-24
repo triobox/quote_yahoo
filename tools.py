@@ -8,7 +8,6 @@
 # ============================================================================
 import datetime as dt
 
-<<<<<<< HEAD
 __all__= ["LogDict","dtnum2str","dtstr2num", "is_workingday",
           "get_workingdays", "market_time_series"]
 
@@ -25,8 +24,8 @@ class LogDict:
         self.data = {}
         if dict is not None:
             self.update(dict)
-        if len(kwargs):
-            self.update(kwargs)
+        if len(Kwargs):
+            self.update(Kwargs)
 
     def __getitem__(self, key):
         if key in self.data:
@@ -53,17 +52,23 @@ class LogDict:
     def values(self): return self.data.values()
 
 
-=======
-__all__= ["dtnum2str", "is_workingday", "get_workdays", "market_time_series"]
->>>>>>> http/master
+# ============================================================================
+# myError
+# 
+# ============================================================================
+class MyError(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+    def __repr__(self):
+        return str(self.msg)
+    def __str__(self):
+        return str(self.msg)
+
 
 # ============================================================================
 # functions
 # ============================================================================
-<<<<<<< HEAD
-=======
 
->>>>>>> http/master
 def dtnum2str (num,fmt='%Y%m%d'):
     """ convert datetime int to datetime str
     @num is an int of second since 1970-01-01-0-0-0
@@ -73,7 +78,6 @@ def dtnum2str (num,fmt='%Y%m%d'):
 
     return d.strftime(fmt)
 
-<<<<<<< HEAD
 def dtstr2num (dtstr,fmt='%Y%m%d'):
     """ convert datetime str to number since 1970-01-01-0-0-0
     @dtstr: date str, like '20080909' 
@@ -82,8 +86,6 @@ def dtstr2num (dtstr,fmt='%Y%m%d'):
     """
     delta = dt.datetime.strptime(dtstr,fmt) - dt.datetime(1970,1,1,0,0)
     return delta.days*24*60*60+delta.seconds
-=======
->>>>>>> http/master
 
 def market_time_series(step, day=None, 
             in_fmt='%Y%m%d', out_fmt='%Y%m%d,%H%M',
@@ -177,20 +179,14 @@ def is_workingday(d, fmt='%Y%m%d'):
         tmp_d = d
 
     if tmp_d.weekday() in [5,6] or tmp_d in HOLIDAYS:
-<<<<<<< HEAD
         return False
     else:
         return True
-=======
-        return True
-    else:
-        return False
->>>>>>> http/master
 
 def get_workingdays(start,end=None, fmt='%Y%m%d', out_str=True):
     """ get workingdays between two dates
     @start: start date, can be str or datetime obj
-    @end: end date. if None, end = start + 1 year
+    @end: end date. if None, end by today
 
     return a generator of working date str or datetime obj
     """
@@ -201,20 +197,21 @@ def get_workingdays(start,end=None, fmt='%Y%m%d', out_str=True):
     if end and isinstance(end,str):
         end = dt.datetime.strptime(end,fmt)
     elif end is None:
-        end = dt.date(year=start.year + 1,
-                      month=start.month,
-                      day=start.day)
-
+        end = dt.datetime.today()
+    
+    rst=[]
     tmp_day = start
     while tmp_day < end:
         if is_workingday(tmp_day): 
             if out_str:
-                yield tmp_day.strftime(fmt)
+                #yield tmp_day.strftime(fmt)
+                rst.append(tmp_day.strftime(fmt))
             else:
-                yield tmp_day
+                #yield tmp_day
+                rst.append(tmp_day.strftime(fmt))
         
         tmp_day += dt.timedelta(1)
-     
+    return rst 
 
 
 

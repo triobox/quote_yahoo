@@ -15,7 +15,7 @@ import struct
 import datetime as dt
 import numpy as np
 import os
-#from os.path 
+import logging 
 from time import strptime
 
 from tools import dtnum2str
@@ -69,14 +69,14 @@ OHLCVS_STR_FMT = ','.join(['{0:.3f}','{1:.3f}','{2:.3f}',
 TIME_NUM2STR_FMT = '%Y%m%d,%H%M' 
 DATE_NUM2STR_FMT = '%Y%m%d'
 
-TOHLCVS_ARR_FMT = 'I4,f4,f4,f4,f4,f4,f4,f4' 
-TOHLCVS_ARR_NAME= 't,o,h,l,c,v,s,u' #last is unknow
+TOHLCVS_ARR_FMT = 'I4,f4,f4,f4,f4,f4,f4' 
+TOHLCVS_ARR_NAME= 'time,open,high,low,close,vol,sum' #last is unknow
 
 # split record fmt to str w/o date
 SPLIT_STR_FMT = ','.join(['{0:.3f}','{1:.3f}',
                               '{2:.3f}','{3:.3f}'])
 SPLIT_ARR_FMT = 'I4,f4,f4,f4,f4' 
-SPLIT_ARR_NAME= 'date,free,changed,price,divid' 
+SPLIT_ARR_NAME= 'time,sd,ss,ssp,cd' 
 
 # finance record fmt to str w/o date
 FIN_STR_FMT = ','.join(['{'+'{0}:.3f'.format(x)+'}' for x in range(37)])
@@ -86,6 +86,21 @@ FIN_ARR_FMT = 'I4'+',f4'*37
 REC_NUM_DAILY = 1
 REC_NUM_5MIN = 48
 REC_NUM_1MIN = 240
+# ============================================================================
+# Logging
+# ============================================================================
+# init logging
+log = logging.getLogger('fxj_parser') 
+# define a handler which writes INFO messages or higher to sys.stderr
+console = logging.StreamHandler()
+console.setLevel(logging.DEBUG)
+# set a format which is simpler for console use
+# tell the handler to use this format
+console.setFormatter(
+        logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s') ) 
+# add the handler to the log 
+log.addHandler(console)
+
 # ============================================================================
 # tools
 # ============================================================================
@@ -147,14 +162,9 @@ def quote2str(quote,time_fmt,out_fmt=OHLCVS_STR_FMT):
     result: list of str, like['20100927-0930,2.13,,,,',...]
         where, time fmt depends on time_fmt
     """
-<<<<<<< HEAD
     fmt_size = len(out_fmt.split(','))
     result = [','.join([dtnum2str(x[0],fmt=time_fmt),
                         out_fmt.format(*x[1:fmt_size+1])]) for x in quote]
-=======
-    result = [','.join([dtnum2str(x[0],fmt=time_fmt),
-                        out_fmt.format(*x[1:])]) for x in quote]
->>>>>>> http/master
     
     return result
 
@@ -168,12 +178,13 @@ def _iter_record(fp,
                 out_arrname):
     """return a generator of records, [code, data list]
     """
+    out_arrfmt_size = len(out_arrfmt.split(','))
     curr_code = ''
     curr_data = []
     while 1:
         # read one record to check is head or body
         raw_data = fp.read(rec_size)
-        if not raw_data: 
+        if len(raw_data) < rec_size: 
             # reach end of file
             break
         
@@ -207,7 +218,7 @@ def _iter_record(fp,
         else: # it's a record body
             ## parse one new record body 
             rec = struct.unpack(fmt_rec_body,raw_data)
-            curr_data.append(rec)
+            curr_data.append(rec[:out_arrfmt_size])
 
 # ============================================================================
 # functions
@@ -254,7 +265,7 @@ def parse_pwr(fp,out_dtfmt='%Y%m%d'):
     head = struct.unpack(fmt_file_head,raw_data)
     
     if head[0]!=4282632242 and head[1]!=4291593181:
-        print('Not PWR file: {0}'.format(fp.name))
+        log.error('not PWR file: {0}'.format(fp.name))
         return None
     
     return _iter_record(fp=fp,
@@ -292,7 +303,7 @@ def parse_fin(fp,out_dtfmt='%Y%m%d'):
         while 1:
             # read one record to check is head or body
             raw_data = fp.read(rec_size)
-            if not raw_data: 
+            if len(raw_data) < rec_size: 
                 # reach end of file
                 break
 
@@ -333,7 +344,7 @@ def parse_fin(fp,out_dtfmt='%Y%m%d'):
     head = struct.unpack(fmt_file_head,raw_data)
     
     if head[0]!=574609676:
-        print('Not FIN file: {0}'.format(fp.name))
+        log.error('not FIN file: {0}'.format(fp.name))
         return None
 
     rec_len = head[1] #166
@@ -379,7 +390,7 @@ def parse_dad(fp, out_dtfmt='%Y%m%d,%H%M'):
     head = struct.unpack(fmt_file_head,raw_data)
     
     if head[0]!= 872159628:
-        print('Not DAD file: {0}'.format(fp.name))
+        log.error('not DAD file: {0}'.format(fp.name))
         return 
     
     # number of records
@@ -394,30 +405,37 @@ def parse_dad(fp, out_dtfmt='%Y%m%d,%H%M'):
                 out_arrfmt=TOHLCVS_ARR_FMT,
                 out_arrname=TOHLCVS_ARR_NAME)
 
-# ============================================================================
-# test
-# ============================================================================
-def test(fn_lst):
-    """test
+def iter_parser(fname,out_dtfmt):
+    """an unify entry for various type fxj file
+    @fname: file to be parsed
+    
+    return:
+    an generator of data source 
     """
-    for x in fn_lst:
-        with open(x,'rb') as fp:
-            base, ext = os.path.splitext(x)
-            if ext.lower() == 'dad':
-                result = parse_dad(fp)
-            elif ext.lower() == 'pwr':
-                result = parse_pwr(fp)
-            elif ext.lower() == 'fin':
-                result = parse_fin(fp)
-         
+
+    base, ext = os.path.splitext(fname)
+    ext = ext.lower()
+    if os.path.exists(fname) and ext in ['.dad','.pwr','.fin']: 
+        fp = open(fname,'rb')
+        if ext == '.dad':
+            result = parse_dad(fp,out_dtfmt=out_dtfmt)
+        elif ext == '.pwr':
+            result = parse_pwr(fp,out_dtfmt=out_dtfmt)
+        elif ext == '.fin':
+            result = parse_fin(fp,out_dtfmt=out_dtfmt)
+    else:
+        log.error('not a valid FXJ file!')
+        return None
+
+    return result
 
 # ============================================================================
-# defination
+# main()
 # ============================================================================
 @plac.annotations(
     fname=("FXJ data file", 'positional', None),
-    code=("stock code",'option','c',str,None,"CODE"),
-    output=("output file",'option','o',str,None,"OUTPUT"),
+    code=("print data of given code",'option','c',str,None,"CODE"),
+    output=("dump data into file",'option','o',str,None,"OUTPUT"),
         )
 def main(fname,code,output):
     "parse FXJ data file"
@@ -431,7 +449,7 @@ def main(fname,code,output):
         elif ext.lower() == '.fin':
             result = parse_fin(fp)
         else:
-            print('not a valid FXJ file!')
+            log.error('not a valid FXJ file!')
             return
 
         if not result:
@@ -443,7 +461,7 @@ def main(fname,code,output):
                     print('\n'.join(r[1]))    
                     result.close()
                     return
-            print('{0} is not available in {1}'.format(code,fname))
+            log.error('{0} not exist  in {1}'.format(code,fname))
             return
 
         if output:
@@ -454,10 +472,9 @@ def main(fname,code,output):
                     count += 1
                     for e in r[1]:
                         ofp.writelines(','.join([r[0],e])+'\n')
-                print('Output total {0} stocks'.format(count)) 
+                log.info('output total {0} stocks'.format(count)) 
             return
 
 if __name__ == "__main__":
     plac.call(main) 
-
 
