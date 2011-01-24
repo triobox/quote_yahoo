@@ -91,9 +91,10 @@ MK_INDEX={'SH':'SH000001','SZ':'SZ399001'}
 # ============================================================================
 # init logging
 log = logging.getLogger('quote_hd5') 
+log.setLevel(logging.INFO) 
 # define a handler which writes INFO messages or higher to sys.stderr
 console = logging.StreamHandler()
-console.setLevel(logging.DEBUG)
+#console.setLevel(logging.DEBUG)
 
 # set a format which is simpler for console use
 # tell the handler to use this format
@@ -257,10 +258,16 @@ class QuoteHD5():
             tbl.flush()
             count[1] += 1
 
+            # update last_update
             if code in MK_INDEX.values():
                 tmp = dtnum2str(rows[-1][0])
                 tbl._v_parent._v_attrs.LAST_UPDATE = tmp
                 fp.root._v_attrs.LAST_UPDATE = tmp
+        
+        if data_type == TYPE_SPLITS:
+            tmp=dt.datetime.strftime(dt.date.today(),'%Y%m%d')
+            for mk in MARKETS:
+                self._hd5fp[mk].root.SPLITS._v_attrs.LAST_UPDATE = tmp
 
         log.info('%s of total %s stocks appended into DB' %(
                                                     count[1],count[0]))
@@ -286,10 +293,10 @@ class QuoteHD5():
                     log.error('source file error %s' %fn)
 
         # update splits data
-        splits = os.path.join(dad_path,'SPLIT.PWR')
+        splits = os.path.join(dad_path,'split.pwr')
         data_source = fpar.iter_parser(splits, out_dtfmt=None)
         if data_source:
-            log.info('update %s' %fn)
+            log.info('update %s' %splits)
             err = self._append_quote(TYPE_SPLITS,data_source)
             data_source.close()
         else:
@@ -349,7 +356,7 @@ class QuoteHD5():
                 continue
             except:
                 (type, value, traceback) = sys.exc_info()
-                log.error('Unexpected %s: %s' %(type,value))
+                log.error('unexpected %s: %s' %(type,value))
                 continue
         dst_fp.close()     
         log.debug('Copy finished')                
@@ -372,11 +379,9 @@ def main(hd5path,update_l,update_r,debug,lastupdate,sort):
 
     # create file handler which logs even debug messages
     log_fn=os.path.join(hd5path,'data_h5.log')
-    fh = logging.FileHandler(log_fn,'a')
     if debug:
-        fh.setLevel(logging.DEBUGO) 
-    else:
-        fh.setLevel(logging.INFO) 
+        log_fn.setLevel(logging.DEBUG) 
+    fh = logging.FileHandler(log_fn,'a')
     fmt = '%(asctime)s %(name)-12s: %(levelname)-8s %(message)s'
     fh.setFormatter(logging.Formatter(fmt))
     log.addHandler(fh)

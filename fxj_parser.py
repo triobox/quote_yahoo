@@ -91,9 +91,10 @@ REC_NUM_1MIN = 240
 # ============================================================================
 # init logging
 log = logging.getLogger('fxj_parser') 
+log.setLevel(logging.INFO) 
 # define a handler which writes INFO messages or higher to sys.stderr
 console = logging.StreamHandler()
-console.setLevel(logging.DEBUG)
+#console.setLevel(logging.DEBUG)
 # set a format which is simpler for console use
 # tell the handler to use this format
 console.setFormatter(
@@ -275,7 +276,7 @@ def parse_pwr(fp,out_dtfmt='%Y%m%d'):
                 out_dtfmt=out_dtfmt,
                 out_strfmt=SPLIT_STR_FMT,
                 out_arrfmt=SPLIT_ARR_FMT,
-                out_arrname=SPLIT_ARR_FMT)
+                out_arrname=SPLIT_ARR_NAME)
     
 
 def parse_fin(fp,out_dtfmt='%Y%m%d'):
@@ -424,7 +425,7 @@ def iter_parser(fname,out_dtfmt):
         elif ext == '.fin':
             result = parse_fin(fp,out_dtfmt=out_dtfmt)
     else:
-        log.error('not a valid FXJ file!')
+        log.error('File not exist %s' %fname)
         return None
 
     return result
