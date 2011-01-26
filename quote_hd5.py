@@ -99,7 +99,7 @@ console = logging.StreamHandler()
 # set a format which is simpler for console use
 # tell the handler to use this format
 console.setFormatter(
-        logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s') ) 
+        logging.Formatter('%(levelname)-8s %(message)s') ) 
 # add the handler to the log 
 log.addHandler(console)
 
@@ -239,7 +239,7 @@ class QuoteHD5():
                 rows = data[np.where(data['time'] >= start)]
                 if len(rows) < 1:
                     log.debug(
-                            '%s has no data later than %s' %(code, start))
+                            '%s has no data later than %s' %(code, lupdate))
                     continue
             else:
                 rows = data
@@ -332,35 +332,46 @@ class QuoteHD5():
             log.debug('%s not exist in DB' %code) 
             return None
 
-    def copyto(self,fn,title='', code_lst=[]):
-        """copy given codes to a new hd5 file 
+    def extract(self,code_lst, fn,title=''):
+        """extract some codes to a new hd5 file 
            
         @fn: new hd5 file name
         @title: title of new hd5
         @code_lst: code to be copied, if [], copy all
         """
+        if len(code_lst)<1:
+            log.warning('no input code')
+            return
+        if title=='':
+            title=','.join(code_lst)
+        log.debug('create new hd5 db: %s' %fn)                
         dst_fp = self.create_hd5(name=fn,title=title)
-        
-        log.debug('Start copy code to %s' %fn)                
+        count=[0,0] 
         for code in code_lst:
-            try:
-                code = code.upper()
-                src_fp = self._hd5fp[code[:2]]
-                for grp in TYPE2GRP.values():
+            code = code.upper()
+            if (code[:2] not in MARKETS) or len(code) != 8:
+                log.error('invalide code %s' %code)
+                continue
+            count[0] += 1
+            src_fp = self._hd5fp[code[:2]]
+            for grp in TYPE2GRP.values():
+                try:
                     dst_grp = dst_fp.getNode(grp)
                     src_tbl = src_fp.getNode(grp,name=code)
                     src_tbl.copy(dst_grp,src_tbl.name,overwrite=True)
-                
-            except tb.NoSuchNodeError: 
-                log.debug('%s not exist in DB' %code)  
-                continue
-            except:
-                (type, value, traceback) = sys.exc_info()
-                log.error('unexpected %s: %s' %(type,value))
-                continue
+                    log.debug('copy %s: %s -> %s' %(code,grp,grp))
+                    count[1] += 1
+                except tb.NoSuchNodeError: 
+                    log.debug('%s not exist in src %s ' %(code,grp))  
+                    continue
+                except:
+                    (type, value, traceback) = sys.exc_info()
+                    log.error('unexpected %s: %s' %(type,value))
+                    continue
         dst_fp.close()     
-        log.debug('Copy finished')                
-        
+        log.info('%s out of %s are extracted to %s' %(
+                                                count[1],count[0],fn))                
+        return
 # ============================================================================
 # main
 # ============================================================================
@@ -368,24 +379,28 @@ class QuoteHD5():
     hd5path=("hd5 DB path", 'positional', None),
     update_l=("update DB from local dad path",'option','u',str,None,"DATAPATH"),
     update_r=("update DB from remote",'flag','U'),
+    extract=("extract codes to a new hd5 DB, split code w/ ,",
+                                    'option','e',str,None,"CODES"),
+    outfn=("output DB name",'option','o',str,None,"OUTPUT"),
     debug=("debug mode",'flag','d'),
-    lastupdate=("lastupdate",'flag','l'),
+    lastupdate=("print last update date",'flag','l'),
     sort=("sort DB by time order",'flag','s'),
         )
-def main(hd5path,update_l,update_r,debug,lastupdate,sort):
+def main(hd5path,update_l,update_r,extract,outfn,debug,lastupdate,sort):
     
     # Get the log
     log = logging.getLogger('quote_hd5')
 
+    if debug:
+        log.setLevel(logging.DEBUG) 
+    
     # create file handler which logs even debug messages
     log_fn=os.path.join(hd5path,'data_h5.log')
-    if debug:
-        log_fn.setLevel(logging.DEBUG) 
     fh = logging.FileHandler(log_fn,'a')
     fmt = '%(asctime)s %(name)-12s: %(levelname)-8s %(message)s'
     fh.setFormatter(logging.Formatter(fmt))
     log.addHandler(fh)
-    
+     
     if update_l:
         db=QuoteHD5(hd5path)
         db.dad2hd5(update_l)
@@ -396,7 +411,12 @@ def main(hd5path,update_l,update_r,debug,lastupdate,sort):
         db.get_lastupdate()
         db.close()
         return
-
+    if extract:
+        codes =extract.split(',')
+        fn = outfn if outfn else codes[0]+'.h5'
+        db=QuoteHD5(hd5path)
+        db.extract(codes,fn)
+        return
 if __name__ == "__main__":
     plac.call(main)
 
