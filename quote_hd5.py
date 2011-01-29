@@ -109,35 +109,52 @@ log.addHandler(console)
 
 class QuoteHD5():
     """ class of quote hd5 DB
+    TODO: use external link to combin two HD5s together for convenience
     """
     def __init__(self, hd5_path):
-        
-        hd5_fn= [(MK_SH,'data_sh.h5'),(MK_SZ,'data_sz.h5')]
         self._hd5fp = {}
         self._last_update={}
-        for m, x in hd5_fn:
-            fn = os.path.join(hd5_path,x)
+        if os.path.isdir(hd5_path):
+            hd5_fn= [ os.path.join(hd5_path,'data_sh.h5'),
+                    os.path.join(hd5_path,'data_sz.h5')]
+        else:
+            hd5_fn=[hd5_path]
+        
+        for  fn in hd5_fn:
             if os.path.exists(fn):
                 fp = tb.openFile(fn, 
                                 mode='r+', 
                                 rootuep="/", 
                                 nodecachesize =1024)
-                self._hd5fp[m] = fp 
-                self._last_update[m] = fp.root._v_attrs.LAST_UPDATE
-                log.debug('open hd5 file %s' %(x))
+                mk = fp.title[:2]
+                if mk in MARKETS:
+                    self._hd5fp[mk] = fp 
+                    self._last_update[mk] = fp.root._v_attrs.LAST_UPDATE
+                    log.info('open hd5 file %s' %(fn))
+                else:
+                    log.error('Hd5 file title incorrect: %s' %fp.title)
+                    fp.close()
             else:
-                #self._hd5fp[m] = none
-                log.critical('hd5 file %s not exist' %(x))
+                log.error('file not exists: %s' %(fn))
+
+    def __repr__(self):
+        tmp=''
+        for mk in MARKETS:
+            fp = self._hd5fp.get(mk)
+            if fp is not None:
+                tmp += fp.__str__()
+        return tmp
 
     def close(self):
         for fp in self._hd5fp.values():
-            log.debug('close hd5 file %s' %(fp.filename))
+            log.info('close hd5 file %s' %(fp.filename))
             fp.close()
 
     def get_lastupdate(self):
         rst =[]
         for mk in MARKETS:
-            fp = self._hd5fp[mk]
+            fp = self._hd5fp.get(mk)
+            if fp is None: continue
             rst.append('last update date of %s:' %fp.filename)
             for grp in fp.walkGroups():
                 tmp = '{0:7}: {1}'.format(grp._v_name, grp._v_attrs.LAST_UPDATE) 
@@ -145,7 +162,7 @@ class QuoteHD5():
         print('\n'.join(rst))
 
 
-    def create_hd5(self,name,title='',cache=1024):
+    def _createHD5(self,name,title='',cache=1024):
         """ create new hd5  
         """
         filters = tb.Filters(complevel=1, 
@@ -314,38 +331,56 @@ class QuoteHD5():
                     node.modifyRows(start=0,stop=-1,rows=rows)
             log.debug('Sort finished')        
 
-    def read(self,code,db_type):
-        """read all quote from HD5 and return numpy recarray
+    def _dump(self,code,db_type):
+        """dump all quote from HD5 and return numpy recarray
 
         @code: stock code, 'SH510051'
         @db_type: dialy or 5min data
         
         return: a numpy recarray if success, otherwise, None
         """
-
-        fp = self._hd5fp[code[:2].upper()]
+        code = code.upper()
+        mk= code[:2]
+        if mk not in MARKETS:
+            log.error('incorrect code name: %s' %code) 
+            return None
+        fp = self._hd5fp[mk]
         try:
-            tbl = fp.getNode(TYPE2GRP[db_type], name=code.upper())
+            tbl = fp.getNode(TYPE2GRP[db_type], name=code)
             rows = tbl.read()
             return rows
         except tb.NoSuchNodeError:
-            log.debug('%s not exist in DB' %code) 
+            log.error('code not exist: %s' %code) 
             return None
+
+    def get_daily(self,code):
+        """get daily quote of given code
+        @code: stock code, link 'sh510050'
+        return: a numpy recarry if success
+        """
+        return self._dump(code,TYPE_DAILY)
+
+    def get_min5(self,code):
+        """get 5min quote of given code
+        @code: stock code, link 'sh510050'
+        return: a numpy recarry if success
+        """
+        return self._dump(code,TYPE_MIN5)
 
     def extract(self,code_lst, fn,title=''):
         """extract some codes to a new hd5 file 
            
         @fn: new hd5 file name
-        @title: title of new hd5
+        @title: title of new hd5, should startswith 'SH' or 'SZ'
         @code_lst: code to be copied, if [], copy all
         """
         if len(code_lst)<1:
             log.warning('no input code')
             return
         if title=='':
-            title=','.join(code_lst)
+            title=','.join(code_lst).upper()
         log.debug('create new hd5 db: %s' %fn)                
-        dst_fp = self.create_hd5(name=fn,title=title)
+        dst_fp = self._createHD5(name=fn,title=title)
         count=[0,0] 
         for code in code_lst:
             code = code.upper()
@@ -359,17 +394,20 @@ class QuoteHD5():
                     dst_grp = dst_fp.getNode(grp)
                     src_tbl = src_fp.getNode(grp,name=code)
                     src_tbl.copy(dst_grp,src_tbl.name,overwrite=True)
+                    ldp = src_grp._v_attrs.LAST_UPDATE  
+                    dst_grp._v_attrs.LAST_UPDATE = ldp
+                    dst_grp._v_parent._v_attrs.LAST_UPDATE = ldp  
                     log.debug('copy %s: %s -> %s' %(code,grp,grp))
                     count[1] += 1
                 except tb.NoSuchNodeError: 
-                    log.debug('%s not exist in src %s ' %(code,grp))  
+                    log.warning('%s not exist in src %s ' %(code,grp))  
                     continue
                 except:
                     (type, value, traceback) = sys.exc_info()
                     log.error('unexpected %s: %s' %(type,value))
                     continue
         dst_fp.close()     
-        log.info('%s out of %s are extracted to %s' %(
+        log.info('%s tables of %s code extracted to %s' %(
                                                 count[1],count[0],fn))                
         return
 # ============================================================================
@@ -385,8 +423,10 @@ class QuoteHD5():
     debug=("debug mode",'flag','d'),
     lastupdate=("print last update date",'flag','l'),
     sort=("sort DB by time order",'flag','s'),
+    show=("show DB information",'flag','w'),
         )
-def main(hd5path,update_l,update_r,extract,outfn,debug,lastupdate,sort):
+def main(hd5path,update_l,update_r,extract,
+         outfn,debug,lastupdate,sort,show):
     
     # Get the log
     log = logging.getLogger('quote_hd5')
@@ -395,7 +435,15 @@ def main(hd5path,update_l,update_r,extract,outfn,debug,lastupdate,sort):
         log.setLevel(logging.DEBUG) 
     
     # create file handler which logs even debug messages
-    log_fn=os.path.join(hd5path,'data_h5.log')
+    if os.path.isdir(hd5path):
+        log_fn=os.path.join(hd5path,'data_h5.log')
+    elif os.path.isfile(hd5path):
+        base,ext = os.path.splitext(hd5path)
+        log_fn=base+'.log'
+    else:
+        print('wrong hd5 file name')
+        return
+
     fh = logging.FileHandler(log_fn,'a')
     fmt = '%(asctime)s %(name)-12s: %(levelname)-8s %(message)s'
     fh.setFormatter(logging.Formatter(fmt))
@@ -416,7 +464,14 @@ def main(hd5path,update_l,update_r,extract,outfn,debug,lastupdate,sort):
         fn = outfn if outfn else codes[0]+'.h5'
         db=QuoteHD5(hd5path)
         db.extract(codes,fn)
+        db.close()
         return
+    if show:
+        db=QuoteHD5(hd5path)
+        print(db)
+        db.close()
+        return
+
 if __name__ == "__main__":
     plac.call(main)
 
