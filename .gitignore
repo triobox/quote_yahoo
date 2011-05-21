@@ -1,0 +1,9 @@
+# lines starting with '#' are considered comments
+# Ignore objects as archives
+*.[oa]
+# Ignore compiled python binary
+*.pyc
+*.pyd
+# Ignore swap and backup file by vim
+*~
+*.swp

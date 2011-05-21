@@ -48,11 +48,15 @@ YAHOO_WEB_BASE = 'http://w01.znz.finance.bj1.aliyk.com'
 #    'data03.znz.finance.bj1.aliyk.com',
 #    'data04.znz.finance.bj1.aliyk.com',
 #    'data05.znz.finance.bj1.aliyk.com'
-YAHOO_CGI_BASE = 'http://data0{0}.znz.finance.bj1.aliyk.com/test/'
+YAHOO_CGI_HEAD = 'http://data0{0}.znz.finance.bj1.aliyk.com/test/'
+YAHOO_CGI_TAIL = '&from=finance.cn.yahoo.com HTTP/1.1'
+KMIN_DAY = 'kmin.py/data.znzDo?cmd={1}|{2}|{3}|{4}|{5}'
+RT = 'data.py/quick?cmd={1}{2}|{3}|{4}|{5}|{6}'
+KMIN_HIST = 'kmin.py/wmData.znzDo?cmd={1}|{2}|{3}'
+YAHOO_RT = ''.join([YAHOO_CGI_HEAD,RT,YAHOO_CGI_TAIL])
+YAHOO_KMIN_DAY = ''.join([YAHOO_CGI_HEAD,KMIN_DAY,YAHOO_CGI_TAIL]) 
+YAHOO_KMIN_HIST = ''.join([YAHOO_CGI_HEAD,KMIN_HIST,YAHOO_CGI_TAIL]) 
 
-YAHOO_RT = YAHOO_CGI_BASE + 'data.py/quick?cmd={1}{2}|{3}|{4}|{5}|{6}'
-YAHOO_KMIN_DAY = YAHOO_CGI_BASE + 'kmin.py/data.znzDo?cmd={1}|{2}|{3}|{4}|{5}'
-YAHOO_KMIN_HIST = YAHOO_CGI_BASE + 'kmin.py/wmData.znzDo?cmd={1}|{2}|{3}'
 YAHOO_DIVID = 'http://finance.cn.yahoo.com/mirror/F10/{0}_d_6.html?r={1}'
 
 

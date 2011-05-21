@@ -24,6 +24,7 @@ import sys
 import datetime as dt
 import os
 import logging
+import cStringIO
 
 import numpy as np
 import tables as tb
@@ -31,6 +32,7 @@ import plac
 
 from tools import *
 import fxj_parser as fpar 
+
 
 __status__ = "prototype"
 
@@ -50,7 +52,7 @@ class DescSPLITS(tb.IsDescription):
     """ struct: date, sending ratio(free), sending ratio (charged), 
         sending price, dividend
     """ 
-    time  = tb.Time32Col(pos=0)      # seconds ince 1970.1.1): integer
+    time  = tb.Time32Col(pos=0)      # seconds ince 1970.1.1): integer 
     sd    = tb.Float32Col(pos=1)     # songgu ratio: float
     ss    = tb.Float32Col(pos=2)     # peigu ratio: float
     ssp   = tb.Float32Col(pos=3)     # peigu ratio: float
@@ -79,8 +81,10 @@ TYPE2EXPECTEDROW = {TYPE_DAILY: 10000,
            TYPE_SPLITS:200}
 MK_SH = 'SH'
 MK_SZ = 'SZ'
-MK_INDEX={'SH':'SH000001','SZ':'SZ399001'} 
+MK_INDEX={'SH':'SH000001','SZ':'SZ399001'}
 
+
+DAD_URL = 'http://www.000562.com/fxjdata/'
 # ============================================================================
 # functions
 # ============================================================================
@@ -289,10 +293,50 @@ class QuoteHD5():
         log.info('%s of total %s stocks appended into DB' %(
                                                     count[1],count[0]))
 
-    def dad2hd5(self,dad_path):
-        """update quote DB
+    def update_hd5(self, url_path=DAD_URL):
+        """update hd5 to date with dads from web
 
-        @dad_path: path of dad files
+        @url_path: url of dad files located, should end with a '/' 
+        """
+        w_days = get_workingdays(self._last_update[MK_SH])
+        for day in w_days[1:]:
+            for url_type, data_type in [('.dad',TYPE_DAILY), 
+                                        ('m.dad',TYPE_MIN5)]:
+                url = url_path + day + url_type
+                msg = '-'.join([day,data_type.lower()])
+                d_tmp = download(url,rep=3)
+                if d_tmp is not None:
+                    #d = src.read()
+                    fp_tmp = cStringIO.StringIO(d_tmp)
+                    data_src = fpar.parse_dad(fp_tmp,out_dtfmt=None)
+                    if data_src:
+                        log.info('update %s' %msg)
+                        err = self._append_quote(data_type,data_src)
+                        data_src.close()
+                    else:
+                        log.error('parse %s failed' %msg)
+                    fp_tmp.close()
+                else:
+                    log.error('download %s failed' %msg)
+                    
+        # update splits data
+        url = url_path + 'SPLIT.PWR'
+        d_tmp = download(url,rep=3)
+        if d_tmp is not None:
+            fp_tmp = cStringIO.StringIO(d_tmp)
+            data_src = fpar.parse_pwr(fp_tmp, out_dtfmt=None)
+            if data_src:
+                log.info('update splits')
+                err = self._append_quote(TYPE_SPLITS,data_src)
+                data_src.close()
+            fp_tmp.close()    
+        else:
+            log.error('down splits error')
+                        
+    def update_hd5_local(self,dad_path):
+        """update hd5 DB with local dads
+
+        @dad_path: local path of dad files
         """
         w_days = get_workingdays(self._last_update[MK_SH])
         for day in w_days[1:]:
@@ -319,6 +363,7 @@ class QuoteHD5():
         else:
             log.error('Source file error %s' %fn)
 
+    
     def sort_hd5(self):
         """sort hd5 files 
         """
@@ -415,9 +460,9 @@ class QuoteHD5():
 # ============================================================================
 @plac.annotations(    
     hd5path=("hd5 DB path", 'positional', None),
-    update_l=("update DB from local dad path",'option','u',str,None,"DATAPATH"),
-    update_r=("update DB from remote",'flag','U'),
-    extract=("extract codes to a new hd5 DB, split code w/ ,",
+    update_l=("update DB from local dad path",'option','U',str,None,"DATAPATH"),
+    update_r=("update DB from remote",'flag','u'),
+    extract=("extract codes to a new hd5 DB, split code by ','",
                                     'option','e',str,None,"CODES"),
     outfn=("output DB name",'option','o',str,None,"OUTPUT"),
     debug=("debug mode",'flag','d'),
@@ -449,9 +494,14 @@ def main(hd5path,update_l,update_r,extract,
     fh.setFormatter(logging.Formatter(fmt))
     log.addHandler(fh)
      
+    if update_r:
+        db=QuoteHD5(hd5path)
+        db.update_hd5()
+        db.close()
+        return    
     if update_l:
         db=QuoteHD5(hd5path)
-        db.dad2hd5(update_l)
+        db.update_hd5_local(update_l)
         db.close()
         return    
     if lastupdate:

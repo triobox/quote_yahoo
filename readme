@@ -4,3 +4,10 @@ quote_yahoo
 fxj_parser
 + parse daily and 5-minute data file of fxj, and split&divident  and finance
 data files.  
+
+quote_hd5 
++ download & store daily and 5 minutes quote into local hd5 file, and provide
+some tools to manipulate these quotes   
+
+tools
++ some common tools used by other modules

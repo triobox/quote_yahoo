@@ -7,9 +7,10 @@
 # imports
 # ============================================================================
 import datetime as dt
+import urllib2
 
 __all__= ["LogDict","dtnum2str","dtstr2num", "is_workingday",
-          "get_workingdays", "market_time_series"]
+          "get_workingdays", "market_time_series","download"]
 
 # ============================================================================
 # LogDict
@@ -188,7 +189,7 @@ def get_workingdays(start,end=None, fmt='%Y%m%d', out_str=True):
     @start: start date, can be str or datetime obj
     @end: end date. if None, end by today
 
-    return a generator of working date str or datetime obj
+    return a lsit of working date str or datetime obj
     """
 
     if isinstance(start,str):
@@ -213,5 +214,22 @@ def get_workingdays(start,end=None, fmt='%Y%m%d', out_str=True):
         tmp_day += dt.timedelta(1)
     return rst 
 
+def download(url, rep=1):
+    """ download url with repeat times 
 
+    @url
+    @rep: repeat times
 
+    return 
+    """
+    rep = 1 if rep < 1 else rep
+    while rep:
+        try:
+            src = urllib2.urlopen(url)
+            data = src.read()
+        
+            return data
+        except:
+            rep -= 1
+    return None        
+               
